@@ -1,0 +1,386 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lyrsoft work API (workspaces, boards, items, shared mailboxes) backed by DynamoDB, protected by the Lyrcloud Cognito user pool, plus SES inbound mail and the public lyrsoft.com contact form.
+# Deploy with scripts/deploy-lyrsoft.sh. Lambda source: api/work/ and api/mail/, bundled by esbuild into
+# work.mjs (the API) and inbound.mjs (SES receipt rule target).
+
+Parameters:
+  ArtifactsBucketName:
+    Type: String
+    Default: lyrcloud-deploy-artifacts
+  LambdaCodeS3Key:
+    Type: String
+  UserPoolId:
+    Type: String
+    Default: us-east-1_cWNxc9tns
+  UserPoolClientId:
+    Type: String
+    Default: 5h78n6dkjbhq92423lscfllj6t
+  AccountsTableName:
+    Type: String
+    Default: lyrcloud-users
+    Description: Lyrcloud account profiles; read for the global admin role.
+  SuperAdminEmail:
+    Type: String
+    Default: lyrclouds@gmail.com
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: 'https://lyrsoft.com,http://localhost:5174'
+  MailDomains:
+    Type: CommaDelimitedList
+    Default: 'lyrsoft.com,lyrcloud.com,lyrtrip.com,lyrshop.com,lyrpay.com,mrshihab.com'
+    Description: Domains whose mail SES receives into Lyrsoft mailboxes (each needs an MX record and a verified SES identity).
+  ReceiptRuleSetName:
+    Type: String
+    Default: lyrsoft-inbound
+  ContactMailbox:
+    Type: String
+    Default: hello@lyrsoft.com
+    Description: Lyrsoft Mail inbox that website contact-form enquiries are filed into (created on first use).
+
+Resources:
+  WorkTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: lyrsoft-work
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      TimeToLiveSpecification: # contact-form rate-limit counters
+        AttributeName: expiresAt
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  WorkFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WorkTableAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt WorkTable.Arn
+                  - !Sub '${WorkTable.Arn}/index/*'
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AccountsTableName}'
+        - PolicyName: MailAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub '${MailBucket.Arn}/*'
+              - Effect: Allow
+                Action: [ses:SendEmail, ses:SendRawEmail]
+                Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*'
+              - Effect: Allow
+                Action: [ses:GetAccount, ses:GetEmailIdentity]
+                Resource: '*'
+
+  WorkFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: lyrsoft-work-api
+      Runtime: nodejs22.x
+      Handler: work.handler
+      Role: !GetAtt WorkFunctionRole.Arn
+      MemorySize: 512
+      Timeout: 15
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WorkTable
+          ACCOUNTS_TABLE_NAME: !Ref AccountsTableName
+          SUPER_ADMIN_EMAIL: !Ref SuperAdminEmail
+          MAIL_BUCKET: !Ref MailBucket
+          MAIL_DOMAINS: !Join [',', !Ref MailDomains]
+          CONTACT_MAILBOX: !Ref ContactMailbox
+          SITE_URL: !Sub
+            - 'https://${Origin}'
+            - Origin: !Select [2, !Split ['/', !Select [0, !Ref AllowedOrigins]]]
+      Code:
+        S3Bucket: !Ref ArtifactsBucketName
+        S3Key: !Ref LambdaCodeS3Key
+
+  # ---------------------------------------------------------------- inbound mail
+
+  MailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'lyrsoft-mail-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  MailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSesToStoreInboundMail
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${MailBucket.Arn}/inbound/*'
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                AWS:SourceArn: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:receipt-rule-set/${ReceiptRuleSetName}:receipt-rule/*'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt MailBucket.Arn
+              - !Sub '${MailBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  InboundFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: InboundMail
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub '${MailBucket.Arn}/*'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource:
+                  - !GetAtt WorkTable.Arn
+                  - !Sub '${WorkTable.Arn}/index/*'
+
+  InboundFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: lyrsoft-mail-inbound
+      Runtime: nodejs22.x
+      Handler: inbound.handler
+      Role: !GetAtt InboundFunctionRole.Arn
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WorkTable
+          MAIL_BUCKET: !Ref MailBucket
+      Code:
+        S3Bucket: !Ref ArtifactsBucketName
+        S3Key: !Ref LambdaCodeS3Key
+
+  InboundInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref InboundFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  ReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Ref ReceiptRuleSetName
+
+  # Store the raw message in S3, then let the processor file it. Spam/virus scanning results
+  # arrive with the event; the processor drops viruses and files spam in the Spam folder.
+  ReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn: [MailBucketPolicy, InboundInvokePermission]
+    Properties:
+      RuleSetName: !Ref ReceiptRuleSet
+      Rule:
+        Name: lyrsoft-mailboxes
+        Enabled: true
+        ScanEnabled: true
+        TlsPolicy: Optional
+        Recipients: !Ref MailDomains
+        Actions:
+          - S3Action:
+              BucketName: !Ref MailBucket
+              ObjectKeyPrefix: inbound/
+          - LambdaAction:
+              FunctionArn: !GetAtt InboundFunction.Arn
+              InvocationType: Event
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: lyrsoft-work-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins: !Ref AllowedOrigins
+        AllowMethods: [GET, POST, PATCH, DELETE, OPTIONS]
+        AllowHeaders: [Authorization, Content-Type]
+        MaxAge: 600
+
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizerType: JWT
+      Name: CognitoJwtAuthorizer
+      IdentitySource:
+        - '$request.header.Authorization'
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClientId
+        Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt WorkFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # One authorized route per method; the Lambda does the routing. Deliberately not `ANY`:
+  # an ANY route also matches the browser's unauthenticated CORS preflight (OPTIONS) and
+  # rejects it with 401. With no OPTIONS route, API Gateway answers preflights itself from
+  # CorsConfiguration.
+  GetProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /{proxy+}'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  PostProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /{proxy+}'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  PatchProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'PATCH /{proxy+}'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  DeleteProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'DELETE /{proxy+}'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  # The lyrsoft.com contact form: the only unauthenticated route. More specific than POST /{proxy+},
+  # so API Gateway picks it. Throttled hard here, and per IP in the Lambda.
+  ContactRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/contact'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn: ContactRoute
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: '$default'
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+      RouteSettings:
+        'POST /public/contact':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 1
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WorkFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*'
+
+Outputs:
+  WorkApiBaseUrl:
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  WorkTableName:
+    Value: !Ref WorkTable
+  MailBucketName:
+    Value: !Ref MailBucket
+  ReceiptRuleSetName:
+    Value: !Ref ReceiptRuleSet

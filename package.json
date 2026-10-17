@@ -1,18 +1,23 @@
 {
   "name": "lyrsoft",
   "version": "1.0.0",
-  "description": "Lyrsoft — company website, Lyrsoft Hub work platform and Lyrsoft Mail delivery system",
+  "description": "lyrsoft.com: the company website, Lyrsoft Work and Lyrsoft Mail",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13" },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env server/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --watch server/index.js",
-    "admin-link": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env server/admin-link.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "dev": "node scripts/dev-server.mjs",
+    "api": "node scripts/lyrsoft-dev-api.mjs",
+    "build": "node scripts/build-lyrsoft.mjs",
+    "deploy": "bash scripts/deploy-lyrsoft.sh",
+    "test": "node --test api/account/roles.test.mjs api/work/model.test.mjs api/work/leads.test.mjs api/mail/model.test.mjs"
   },
-  "dependencies": {
-    "express": "^5.1.0",
-    "nodemailer": "^7.0.10"
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.682.0",
+    "@aws-sdk/client-s3": "^3.682.0",
+    "@aws-sdk/client-sesv2": "^3.682.0",
+    "@aws-sdk/lib-dynamodb": "^3.682.0",
+    "@aws-sdk/s3-request-presigner": "^3.682.0",
+    "esbuild": "^0.24.0",
+    "postal-mime": "^2.3.2"
   }
 }

@@ -9,11 +9,13 @@
     "api": "node scripts/lyrsoft-dev-api.mjs",
     "build": "node scripts/build-lyrsoft.mjs",
     "deploy": "bash scripts/deploy-lyrsoft.sh",
-    "test": "node --test api/account/roles.test.mjs api/work/model.test.mjs api/work/leads.test.mjs api/mail/model.test.mjs"
+    "test": "node --test api/account/roles.test.mjs api/work/model.test.mjs api/work/leads.test.mjs api/work/lyrbot.test.mjs api/mail/model.test.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@aws-sdk/client-dynamodb": "^3.682.0",
     "@aws-sdk/client-s3": "^3.682.0",
+    "@aws-sdk/client-secrets-manager": "^3.1152.0",
     "@aws-sdk/client-sesv2": "^3.682.0",
     "@aws-sdk/lib-dynamodb": "^3.682.0",
     "@aws-sdk/s3-request-presigner": "^3.682.0",

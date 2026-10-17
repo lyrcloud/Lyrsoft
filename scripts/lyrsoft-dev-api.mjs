@@ -106,7 +106,7 @@ createServer(async (request, response) => {
     });
   }
   const token = (request.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const isPublic = request.method === 'POST' && url.pathname === '/public/contact'; // AuthorizationType NONE in the template
+  const isPublic = request.method === 'POST' && ['/public/contact', '/public/lyrbot'].includes(url.pathname); // AuthorizationType NONE in the template
   if (!isPublic && !token.startsWith('dev.')) return response.writeHead(401, { ...cors, 'content-type': 'application/json' }).end('{"message":"Unauthorized"}');
   const result = await handler({
     requestContext: {

@@ -9,13 +9,16 @@
 //   ITEM#<i>    UPDATE#<iso>#<id>  item update (comment)
 //   CONFIG      LEADS              where website enquiries go: { wsId, boardId }
 //   RATE#contact#<ip>  <hour>      contact form submissions per IP per hour (expires via TTL)
+//   RATE#lyrbot#<ip>   <hour>      Lyrbot questions per IP per hour (expires via TTL)
+//   RATE#lyrbot#all    <day>       Lyrbot questions for the whole site per day (expires via TTL)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins (Cognito doesn't mark them verified, and the GitHub bridge
 // passes through whatever GitHub reports), so other providers are refused.
 //
-// One route is public: POST /public/contact, the lyrsoft.com contact form. Each enquiry becomes an
-// item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox.
+// Two routes are public: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
+// item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox),
+// and POST /public/lyrbot, the site's help assistant (lyrbot.mjs).
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   BatchWriteCommand,
@@ -27,12 +30,22 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
+import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SESv2Client } from '@aws-sdk/client-sesv2';
 import { roleFor, SUPER_ADMIN_PROVIDER } from '../account/roles.mjs';
 import { canUseMailbox } from '../mail/model.mjs';
 import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
+import {
+  cleanLyrbotMessages,
+  LYRBOT_DAILY_LIMIT,
+  LYRBOT_DAILY_MESSAGE,
+  LYRBOT_FALLBACK_REPLY,
+  LYRBOT_HOURLY_LIMIT,
+  LYRBOT_HOURLY_MESSAGE,
+  lyrbotReply,
+} from './lyrbot.mjs';
 import {
   can,
   cleanColumns,
@@ -57,6 +70,8 @@ const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN || 'lyrcloud-auth.auth.us-east
 const MAIL_BUCKET = process.env.MAIL_BUCKET;
 const CONTACT_MAILBOX = (process.env.CONTACT_MAILBOX || 'hello@lyrsoft.com').toLowerCase();
 const SITE_URL = (process.env.SITE_URL || 'https://lyrsoft.com').replace(/\/$/, '');
+// Secrets Manager secret holding the Anthropic API key for Lyrbot; ANTHROPIC_API_KEY wins (local dev).
+const ANTHROPIC_SECRET = process.env.ANTHROPIC_SECRET;
 const s3 = new S3Client({});
 const mailStore = createMailStore({ ddb, s3, table: TABLE, bucket: MAIL_BUCKET });
 
@@ -448,17 +463,20 @@ registerMailRoutes(route, { store: mailStore, s3, ses: new SESv2Client({}), buck
 
 // ------------------------------------------------------------------ public contact form
 
-// Counts this IP's submissions in the current hour; false once over the limit.
-async function underContactLimit(ip) {
+// Counts one use of `key` in the current hour (or day) and returns the new count.
+async function countUse(key, period = 'hour') {
   const { Attributes } = await ddb.send(new UpdateCommand({
     TableName: TABLE,
-    Key: { PK: `RATE#contact#${ip}`, SK: now().slice(0, 13) },
+    Key: { PK: `RATE#${key}`, SK: now().slice(0, period === 'day' ? 10 : 13) },
     UpdateExpression: 'ADD hits :one SET expiresAt = :expires',
-    ExpressionAttributeValues: { ':one': 1, ':expires': Math.floor(Date.now() / 1000) + 2 * 3600 },
+    ExpressionAttributeValues: { ':one': 1, ':expires': Math.floor(Date.now() / 1000) + (period === 'day' ? 26 : 2) * 3600 },
     ReturnValues: 'ALL_NEW',
   }));
-  return Attributes.hits <= CONTACT_LIMIT_PER_HOUR;
+  return Attributes.hits;
 }
+
+// Counts this IP's submissions in the current hour; false once over the limit.
+const underContactLimit = async (ip) => (await countUse(`contact#${ip}`)) <= CONTACT_LIMIT_PER_HOUR;
 
 // The leads board lives in a "Lyrsoft" workspace owned by the super admin, created with the first
 // enquiry. If someone deletes the board or workspace, the next enquiry sets it up again.
@@ -532,6 +550,31 @@ async function submitContact(event) {
   return json(201, { ok: true });
 }
 
+// ------------------------------------------------------------------ Lyrbot
+
+let anthropicKey;
+async function getAnthropicKey() {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_SECRET) return null;
+  anthropicKey ??= (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: ANTHROPIC_SECRET }))).SecretString.trim();
+  return anthropicKey;
+}
+
+async function lyrbotChat(event) {
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) return json(503, { error: LYRBOT_FALLBACK_REPLY });
+  const body = parseBody(event);
+  if (body === null) throw new HttpError(400, 'Invalid JSON body.');
+  const conversation = cleanLyrbotMessages(body.messages);
+  if (!conversation) return json(422, { error: 'Type a question for Lyrbot.' });
+  if ((await countUse(`lyrbot#${event.requestContext?.http?.sourceIp || 'unknown'}`)) > LYRBOT_HOURLY_LIMIT) {
+    return json(429, { error: LYRBOT_HOURLY_MESSAGE });
+  }
+  if ((await countUse('lyrbot#all', 'day')) > LYRBOT_DAILY_LIMIT) return json(429, { error: LYRBOT_DAILY_MESSAGE });
+  const [status, reply] = await lyrbotReply(apiKey, conversation);
+  return json(status, reply);
+}
+
 // ------------------------------------------------------------------ entry point
 
 function parseBody(event) {
@@ -550,6 +593,7 @@ export const handler = async (event) => {
   const path = event.requestContext?.http?.path || '';
   try {
     if (method === 'POST' && path === '/public/contact') return await submitContact(event);
+    if (method === 'POST' && path === '/public/lyrbot') return await lyrbotChat(event);
     const me = await identify(event);
     for (const { method: m, re, keys, fn } of routes) {
       const match = m === method && path.match(re);

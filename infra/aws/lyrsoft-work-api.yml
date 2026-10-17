@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Lyrsoft work API (workspaces, boards, items, shared mailboxes) backed by DynamoDB, protected by the Lyrcloud Cognito user pool, plus SES inbound mail and the public lyrsoft.com contact form.
+Description: Lyrsoft work API (workspaces, boards, items, shared mailboxes) backed by DynamoDB, protected by the Lyrcloud Cognito user pool, plus SES inbound mail, the public lyrsoft.com contact form and Lyrbot.
 # Deploy with scripts/deploy-lyrsoft.sh. Lambda source: api/work/ and api/mail/, bundled by esbuild into
 # work.mjs (the API) and inbound.mjs (SES receipt rule target).
 
@@ -36,6 +36,13 @@ Parameters:
     Type: String
     Default: hello@lyrsoft.com
     Description: Lyrsoft Mail inbox that website contact-form enquiries are filed into (created on first use).
+  AnthropicSecretName:
+    Type: String
+    Default: lyrshop/anthropic
+    Description: Secrets Manager secret holding the Anthropic API key Lyrbot uses (shared with Lyrshop). Blank turns Lyrbot off.
+
+Conditions:
+  HasAnthropicSecret: !Not [!Equals [!Ref AnthropicSecretName, '']]
 
 Resources:
   WorkTable:
@@ -47,7 +54,7 @@ Resources:
       BillingMode: PAY_PER_REQUEST
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
-      TimeToLiveSpecification: # contact-form rate-limit counters
+      TimeToLiveSpecification: # contact-form and Lyrbot rate-limit counters
         AttributeName: expiresAt
         Enabled: true
       AttributeDefinitions:
@@ -118,6 +125,16 @@ Resources:
               - Effect: Allow
                 Action: [ses:GetAccount, ses:GetEmailIdentity]
                 Resource: '*'
+        - !If
+          - HasAnthropicSecret
+          - PolicyName: LyrbotSecret
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicSecretName}-*'
+          - !Ref AWS::NoValue
 
   WorkFunction:
     Type: AWS::Lambda::Function
@@ -127,7 +144,7 @@ Resources:
       Handler: work.handler
       Role: !GetAtt WorkFunctionRole.Arn
       MemorySize: 512
-      Timeout: 15
+      Timeout: 29 # Lyrbot replies come from Claude; API Gateway waits at most 30 seconds
       Environment:
         Variables:
           TABLE_NAME: !Ref WorkTable
@@ -136,6 +153,7 @@ Resources:
           MAIL_BUCKET: !Ref MailBucket
           MAIL_DOMAINS: !Join [',', !Ref MailDomains]
           CONTACT_MAILBOX: !Ref ContactMailbox
+          ANTHROPIC_SECRET: !Ref AnthropicSecretName
           SITE_URL: !Sub
             - 'https://${Origin}'
             - Origin: !Select [2, !Split ['/', !Select [0, !Ref AllowedOrigins]]]
@@ -342,8 +360,8 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
 
-  # The lyrsoft.com contact form: the only unauthenticated route. More specific than POST /{proxy+},
-  # so API Gateway picks it. Throttled hard here, and per IP in the Lambda.
+  # The two unauthenticated routes: the lyrsoft.com contact form and Lyrbot. More specific than
+  # POST /{proxy+}, so API Gateway picks them. Throttled here, and per IP in the Lambda.
   ContactRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -352,9 +370,17 @@ Resources:
       Target: !Sub 'integrations/${LambdaIntegration}'
       AuthorizationType: NONE
 
+  LyrbotRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/lyrbot'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
   Stage:
     Type: AWS::ApiGatewayV2::Stage
-    DependsOn: ContactRoute
+    DependsOn: [ContactRoute, LyrbotRoute]
     Properties:
       ApiId: !Ref HttpApi
       StageName: '$default'
@@ -366,6 +392,9 @@ Resources:
         'POST /public/contact':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 1
+        'POST /public/lyrbot':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 2
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission

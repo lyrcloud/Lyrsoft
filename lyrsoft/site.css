@@ -87,3 +87,62 @@ img { max-width: 100%; }
 }
 
 .not-found { min-height: 100vh; display: grid; align-items: center; }
+
+/* Lyrbot: the floating help assistant (lyrbot.js), as on Lyrshop and Lyrtrip. */
+.lyrbot { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.lyrbot-toggle { display: inline-flex; align-items: center; gap: 6px; height: 52px; padding: 0 16px 0 11px; border: 0; border-radius: 999px; background: linear-gradient(135deg, var(--brand), #9b3df5); color: #fff; font: inherit; font-weight: 700; box-shadow: 0 10px 25px color-mix(in srgb, var(--brand) 35%, transparent); cursor: pointer; transition: transform .2s, box-shadow .2s; }
+.lyrbot-toggle:hover { transform: translateY(-2px); box-shadow: 0 14px 30px color-mix(in srgb, var(--brand) 45%, transparent); }
+.lyrbot-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.lyrbot-toggle svg { width: 32px; height: 32px; animation: lyrbot-bob 3s ease-in-out infinite; }
+.lyrbot svg .lyrbot-eye { fill: var(--brand); }
+.lyrbot svg .lyrbot-mouth { stroke: var(--brand); }
+.lyrbot-toggle svg .lyrbot-eye { animation: lyrbot-blink 4s infinite; transform-origin: center; transform-box: fill-box; }
+.lyrbot.is-open .lyrbot-toggle-label { display: none; }
+.lyrbot.is-open .lyrbot-toggle { padding: 0 11px; }
+@keyframes lyrbot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes lyrbot-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+.lyrbot-panel { order: -1; display: flex; flex-direction: column; width: min(370px, calc(100vw - 32px)); height: min(540px, calc(100vh - 160px)); border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: 0 24px 60px rgba(10, 8, 40, .28); overflow: hidden; animation: lyrbot-open .2s ease; }
+.lyrbot-panel[hidden] { display: none; }
+@keyframes lyrbot-open { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+.lyrbot-header { display: flex; align-items: center; gap: 10px; padding: 14px 14px 14px 16px; background: linear-gradient(135deg, var(--brand), #9b3df5); color: #fff; }
+.lyrbot-header div { display: grid; flex: 1; }
+.lyrbot-header small { opacity: .85; font-size: 12.5px; }
+.lyrbot-avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, .18); color: #fff; }
+.lyrbot-avatar svg { width: 26px; height: 26px; }
+.lyrbot-close { width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .15); color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
+.lyrbot-close:hover, .lyrbot-close:focus-visible { background: rgba(255, 255, 255, .3); }
+.lyrbot-messages { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto; background: var(--bg-alt); }
+.lyrbot-message { max-width: 85%; padding: 10px 13px; border-radius: 14px; font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.lyrbot-message.is-bot { align-self: flex-start; border: 1px solid var(--line); border-bottom-left-radius: 4px; background: var(--card); color: var(--ink); }
+.lyrbot-message.is-user { align-self: flex-end; border-bottom-right-radius: 4px; background: var(--brand); color: #fff; }
+.lyrbot-message.is-error { border-color: color-mix(in srgb, var(--err) 40%, transparent); background: color-mix(in srgb, var(--err) 10%, var(--card)); }
+.lyrbot-message a { color: var(--brand); font-weight: 600; text-decoration: underline; }
+.lyrbot-message.is-user a { color: #fff; }
+.lyrbot-typing { display: inline-flex; gap: 4px; padding: 3px 0; }
+.lyrbot-typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: lyrbot-dot 1.2s infinite ease-in-out; }
+.lyrbot-typing i:nth-child(2) { animation-delay: .15s; }
+.lyrbot-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes lyrbot-dot { 0%, 80%, 100% { transform: translateY(0); opacity: .5; } 40% { transform: translateY(-4px); opacity: 1; } }
+.lyrbot-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.lyrbot-quick[hidden] { display: none; }
+.lyrbot-quick button { padding: 5px 11px; border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--brand) 10%, var(--card)); color: var(--brand); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.lyrbot-quick button:hover { background: color-mix(in srgb, var(--brand) 18%, var(--card)); }
+.lyrbot-form { display: flex; gap: 8px; padding: 11px; border-top: 1px solid var(--line); }
+.lyrbot-input { flex: 1; min-width: 0; margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14.5px; }
+.lyrbot-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
+.lyrbot-send { display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--brand); color: #fff; cursor: pointer; }
+.lyrbot-send svg { width: 18px; height: 18px; }
+.lyrbot-send:disabled { opacity: .5; cursor: wait; }
+.lyrbot-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 16px 13px; font-size: 12.5px; color: var(--muted); }
+.lyrbot-whatsapp { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--ok) 14%, var(--card)); color: var(--ok); font-weight: 700; text-decoration: none; }
+.lyrbot-whatsapp svg { width: 15px; height: 15px; }
+.lyrbot-email { color: var(--brand); font-weight: 600; text-decoration: none; }
+.lyrbot-whatsapp:hover, .lyrbot-email:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .lyrbot-toggle-label { display: none; }
+  .lyrbot-toggle { width: 52px; padding: 0; justify-content: center; }
+  .lyrbot-panel { height: min(520px, calc(100vh - 128px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lyrbot-toggle svg, .lyrbot-toggle svg .lyrbot-eye, .lyrbot-panel, .lyrbot-typing i { animation: none; }
+}

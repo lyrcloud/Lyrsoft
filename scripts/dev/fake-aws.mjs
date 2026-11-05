@@ -18,6 +18,31 @@ export class GetEmailIdentityCommand extends Command {}
 export class SendEmailCommand extends Command {}
 export class PublishCommand extends Command {}
 export class AdminGetUserCommand extends Command {}
+export class CreateMeetingCommand extends Command {}
+export class GetMeetingCommand extends Command {}
+export class DeleteMeetingCommand extends Command {}
+export class CreateAttendeeCommand extends Command {}
+
+// Meetings are only pretend locally: the app gets ids, but no media servers to connect to.
+const meetings = new Map();
+export class ChimeSDKMeetingsClient {
+  async send(command) {
+    const { input } = command;
+    if (command instanceof CreateMeetingCommand) {
+      const MeetingId = `dev-meeting-${meetings.size + 1}`;
+      const Meeting = { MeetingId, ExternalMeetingId: input.ExternalMeetingId, MediaRegion: input.MediaRegion, MediaPlacement: { AudioHostUrl: 'dev', SignalingUrl: 'wss://dev.invalid' } };
+      meetings.set(MeetingId, Meeting);
+      return { Meeting };
+    }
+    if (command instanceof GetMeetingCommand) {
+      if (!meetings.has(input.MeetingId)) throw Object.assign(new Error('not found'), { name: 'NotFoundException' });
+      return { Meeting: meetings.get(input.MeetingId) };
+    }
+    if (command instanceof DeleteMeetingCommand) return meetings.delete(input.MeetingId), {};
+    if (command instanceof CreateAttendeeCommand) return { Attendee: { AttendeeId: `dev-att-${Date.now()}`, ExternalUserId: input.ExternalUserId, JoinToken: 'dev' } };
+    throw new Error(`fake-aws: unsupported Chime command ${command.constructor.name}`);
+  }
+}
 
 export class SNSClient {
   async send(command) {

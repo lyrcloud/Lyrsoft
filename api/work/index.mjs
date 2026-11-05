@@ -41,6 +41,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { ChimeSDKMeetingsClient } from '@aws-sdk/client-chime-sdk-meetings';
 import { AdminGetUserCommand, CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { S3Client } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
@@ -72,6 +73,7 @@ import {
 } from './account.mjs';
 import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
+import { channelId, registerCollabRoutes } from './collab.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
 import {
   cleanLyrbotMessages,
@@ -620,6 +622,9 @@ route('DELETE', '/workspaces/{ws}', async (me, { ws }) => {
   const rows = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `WS#${ws}` } });
   for (const board of rows.filter((r) => r.SK.startsWith('BOARD#'))) await deleteBoardData(board.boardId);
   await deleteKeys(rows.map(({ PK, SK }) => ({ PK, SK })));
+  // The workspace's team chat goes with it.
+  const chat = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `CHAT#${channelId(ws)}` } });
+  await deleteKeys(chat.map(({ PK, SK }) => ({ PK, SK })));
   return { deleted: true };
 });
 
@@ -780,6 +785,20 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
 });
 
 registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
+
+registerCollabRoutes(route, {
+  db: { get, put, queryAll },
+  HttpError,
+  openWorkspace,
+  isStaff,
+  memberships: (email) => queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': `USER#${email}` } }),
+  listProfiles: () => listProfiles(),
+  sendEmail: (to, email) => sendAccountEmail(to, email),
+  siteUrl: SITE_URL,
+  chime: new ChimeSDKMeetingsClient({}),
+  now,
+  newId,
+});
 
 // ------------------------------------------------------------------ public contact form
 

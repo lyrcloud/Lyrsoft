@@ -9,6 +9,13 @@ Everything behind **https://lyrsoft.com**:
 
 Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and password** (`lyrsoft/signin.js`, `src/cognito.js`) confirmed with a 6-digit code that Cognito emails (sent from no-reply@lyrcloud.com, since the pool is shared). GitHub sign-ins are refused because GitHub emails aren't proof of ownership. The super admin is **lyrclouds@gmail.com** (stack parameter `SuperAdminEmail`); it is never stored, but derived on every request from a Google sign-in with that email, whatever case Cognito gives the provider name.
 
+## Messages and meetings
+
+- **Messages** (`/app/#/chat`, `lyrsoft/chat.js`, API in `api/work/collab.mjs`): a team channel for every workspace, and direct messages between people who share a workspace (staff can message anyone). The open conversation polls every 4 seconds; the sidebar badge every 30.
+- **Meetings** (`/app/#/meetings`, `lyrsoft/meet.js`): schedule a video meeting and email the invitations (time shown in the host's time zone, with a Join link to `/app/#/meet/<id>`), start an instant call, or call everyone in a conversation from Messages. The host (or staff) can invite more people or cancel.
+- **Calls** run on **Amazon Chime SDK**: joining creates the Chime meeting on first use and an attendee per person (about $0.0017 per attendee-minute). Mute, camera, screen sharing, invite link and leave. The browser SDK is bundled into `lyrsoft/chime-sdk.js` by `scripts/build-chime-sdk.mjs` and only loads when someone joins.
+- **Recording** happens in the browser: it records the screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file to your downloads. Nothing is uploaded. It needs Chrome, Edge or Firefox on a computer; phone browsers can't capture the screen.
+
 ## Accounts and admin console
 
 - **Profile** (`/app/#/profile`, `lyrsoft/account.js`): photo (the Google photo by default, or an upload the browser shrinks to a ≤ 45 KB JPEG, `lyrsoft/avatar.js`), name, verified email, mobile number and email settings. The role badge in the top bar opens the admin console. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.

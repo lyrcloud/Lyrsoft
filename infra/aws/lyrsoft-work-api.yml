@@ -162,6 +162,10 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref AppSecret
+              # Video meetings (Amazon Chime SDK): start a meeting, add people, end it.
+              - Effect: Allow
+                Action: [chime:CreateMeeting, chime:GetMeeting, chime:DeleteMeeting, chime:CreateAttendee]
+                Resource: '*'
         - !If
           - HasAnthropicSecret
           - PolicyName: LyrbotSecret

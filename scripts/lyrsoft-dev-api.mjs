@@ -20,7 +20,7 @@ register('data:text/javascript,' + encodeURIComponent(`
   const fakeAws = ${JSON.stringify(new URL('./dev/fake-aws.mjs', import.meta.url).href)};
   export async function resolve(specifier, context, next) {
     if (specifier === '@aws-sdk/client-dynamodb' || specifier === '@aws-sdk/lib-dynamodb') return { url: fakeDb, shortCircuit: true };
-    if (['@aws-sdk/client-s3', '@aws-sdk/client-sesv2', '@aws-sdk/client-sns', '@aws-sdk/client-cognito-identity-provider', '@aws-sdk/s3-request-presigner'].includes(specifier)) return { url: fakeAws, shortCircuit: true };
+    if (['@aws-sdk/client-s3', '@aws-sdk/client-sesv2', '@aws-sdk/client-sns', '@aws-sdk/client-cognito-identity-provider', '@aws-sdk/client-chime-sdk-meetings', '@aws-sdk/s3-request-presigner'].includes(specifier)) return { url: fakeAws, shortCircuit: true };
     return next(specifier, context);
   }
 `));

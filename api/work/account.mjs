@@ -253,3 +253,39 @@ export function unsubscribePage(state, siteUrl, action = '') {
   const [heading, bodyHtml] = pages[state] || pages.invalid;
   return layout(siteUrl, { heading, bodyHtml, footerHtml: `Lyrsoft · <a href="${siteUrl}" style="color:#5d6178">lyrsoft.com</a>` });
 }
+
+// A meeting invitation: who invited you, when (in the host's time zone), and a Join button.
+export function meetingInviteEmail({ title, hostName, hostEmail, when, durationMin, joinUrl, cancelled = false }, siteUrl) {
+  const host = hostName ? `${hostName} (${hostEmail})` : hostEmail;
+  if (cancelled) {
+    const text = `${host} cancelled “${title}” (${when}).\n\n— Lyrsoft`;
+    const html = layout(siteUrl, {
+      heading: `Cancelled: ${title}`,
+      bodyHtml: `<p style="margin:0 0 16px">${escapeHtml(host)} cancelled this meeting.</p><p style="margin:0 0 16px"><b>${escapeHtml(when)}</b></p>`,
+      footerHtml: 'You were invited to this meeting in Lyrsoft.',
+    });
+    return { subject: `Cancelled: ${title}`, text, html };
+  }
+  const text = `${host} invited you to a Lyrsoft meeting.
+
+${title}
+${when} · ${durationMin} minutes
+
+Join: ${joinUrl}
+
+Sign in to Lyrsoft with this email address to join. You can also find the meeting under Meetings in Lyrsoft Work.
+
+— Lyrsoft`;
+  const html = layout(siteUrl, {
+    heading: title,
+    bodyHtml: `<p style="margin:0 0 16px">${escapeHtml(host)} invited you to a video meeting.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 8px;font-size:15px">
+<tr><td style="padding:2px 12px 2px 0;color:#5d6178">When</td><td style="padding:2px 0"><b>${escapeHtml(when)}</b></td></tr>
+<tr><td style="padding:2px 12px 2px 0;color:#5d6178">Length</td><td style="padding:2px 0">${durationMin} minutes</td></tr>
+</table>
+${button(joinUrl, 'Join meeting')}
+<p style="margin:0;color:#5d6178;font-size:13px">Sign in to Lyrsoft with this email address to join. The meeting is also listed under Meetings in Lyrsoft Work.</p>`,
+    footerHtml: `Invitation from ${escapeHtml(hostEmail)} through Lyrsoft.`,
+  });
+  return { subject: `Invitation: ${title} (${when})`, text, html };
+}

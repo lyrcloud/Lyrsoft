@@ -2,6 +2,8 @@
 // A dependency-free, hash-routed app on top of the Lyrsoft work API (api/work/), signed in
 // through the shared Lyrcloud Cognito user pool (src/auth.js).
 import { createAccount } from './account.js';
+import { createChat } from './chat.js';
+import { createMeetings } from './meet.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
 import { avatarHtml } from './avatar.js';
 import { WORK_API_BASE } from './config.js';
@@ -95,6 +97,9 @@ function parseRoute() {
   const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
   const params = new URLSearchParams(query);
   if (parts[0] === 'profile') return { view: 'profile', params };
+  if (parts[0] === 'chat') return { view: 'chat', conv: parts[1] || null, params };
+  if (parts[0] === 'meetings') return { view: 'meetings', params };
+  if (parts[0] === 'meet' && parts[1]) return { view: 'meet', meetingId: parts[1], params };
   if (parts[0] === 'admin') return { view: 'admin', tab: parts[1] === 'updates' ? 'updates' : 'users', params };
   if (parts[0] === 'mail') {
     if (parts[1] === 'settings') return { view: 'mailSettings', params };
@@ -125,7 +130,10 @@ const withParams = (changes) => {
 
 const mail = createMail({ api, esc, toast, render: () => render(), go, withParams, initial, formatDateTime, getMe: () => state.me });
 const account = createAccount({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
+const chat = createChat({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
+const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args) });
 const isAccountView = () => route.view === 'profile' || route.view === 'admin';
+const isCollabView = () => ['chat', 'meetings', 'meet'].includes(route.view);
 
 // Fetches whatever the current route needs, then renders.
 let loadSeq = 0;
@@ -163,6 +171,8 @@ async function load() {
     if (!itemId) state.updates = null;
     await mail.load(route);
     await account.load(route);
+    await chat.load(route);
+    await meetings.load(route);
   } catch (error) {
     if (seq === loadSeq) state.error = error.message;
   }
@@ -197,13 +207,14 @@ function sidebar() {
             </nav>`
           : ''
       }
+      ${state.me ? chat.sidebarLinks(route) : ''}
       ${mail.sidebarLinks(route)}
       ${state.me ? account.sidebarLinks(route) : ''}
     </aside>`;
 }
 
-const crumb = () =>
-  route.view.startsWith('mail') ? 'Mail' : route.view === 'profile' ? 'My profile' : route.view === 'admin' ? 'Admin console' : state.ws?.workspace.name || 'Lyrsoft Work';
+const CRUMBS = { profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting' };
+const crumb = () => (route.view.startsWith('mail') ? 'Mail' : CRUMBS[route.view] || state.ws?.workspace.name || 'Lyrsoft Work');
 
 function topbar() {
   const me = state.me;
@@ -231,21 +242,30 @@ function render() {
   let content;
   if (state.error) {
     content = `<section class="panel empty"><h2>Something went wrong</h2><p>${esc(state.error)}</p><a class="btn primary" href="#/">Go to my workspaces</a></section>`;
-  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route)) {
+  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route) || !chat.ready(route) || !meetings.ready(route)) {
     content = '<p class="loading">Loading…</p>';
   } else {
-    content = route.view.startsWith('mail') ? mail.view(route) : isAccountView() ? account.view(route) : views[route.view]();
+    content = route.view.startsWith('mail')
+      ? mail.view(route)
+      : isAccountView()
+        ? account.view(route)
+        : route.view === 'chat'
+          ? chat.view(route)
+          : isCollabView()
+            ? meetings.view(route)
+            : views[route.view]();
   }
   app.innerHTML = `
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content">${content}</main>
+      <main class="content${route.view === 'chat' ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
   mail.afterRender();
-  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
+  chat.afterRender();
+  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
 // ------------------------------------------------------------------ views
@@ -260,10 +280,13 @@ const views = {
         ${workspaces
           .map(
             (w) => `
-          <a class="panel ws-card" href="#/w/${esc(w.id)}">
-            <span class="ws-mark" style="background:${COLORS[w.name.length % COLORS.length]}">${initial(w.name)}</span>
-            <span><b>${esc(w.name)}</b><small>${w.staffAccess ? 'Staff access' : ROLE_LABELS[w.role] || ''}</small></span>
-          </a>`,
+          <div class="ws-card-wrap">
+            <a class="panel ws-card" href="#/w/${esc(w.id)}">
+              <span class="ws-mark" style="background:${COLORS[w.name.length % COLORS.length]}">${initial(w.name)}</span>
+              <span><b>${esc(w.name)}</b><small>${w.staffAccess ? 'Staff access' : ROLE_LABELS[w.role] || ''}</small></span>
+            </a>
+            ${w.role === 'owner' ? `<button class="icon-btn ws-delete" data-click="delete-ws" data-ws="${esc(w.id)}" data-name="${esc(w.name)}" title="Delete ${esc(w.name)}" aria-label="Delete ${esc(w.name)}">🗑</button>` : ''}
+          </div>`,
           )
           .join('')}
         <form class="panel ws-card new" data-form="new-workspace">
@@ -800,11 +823,22 @@ const clickActions = {
       toast(error.message);
     }
   },
-  'delete-ws': async () => {
-    const name = state.ws.workspace.name;
-    if (prompt(`This deletes every board and item in “${name}”. Type the workspace name to confirm.`) !== name) return;
+  // From a workspace card on the home page (data-ws) or the workspace's Team & settings page. Confirms
+  // in an in-app dialog: browser prompt() pop-ups are unreliable on phones.
+  'delete-ws': async (target) => {
+    const wsId = target.dataset.ws || state.ws.workspace.id;
+    const name = target.dataset.name || state.ws.workspace.name;
+    const values = await dialog(
+      'Delete workspace?',
+      [{ name: 'confirm', label: `Type “${name}” to confirm`, maxlength: 80 }],
+      'Delete forever',
+      `<p class="muted">This deletes <b>${esc(name)}</b> with every board, item, comment and member. It can’t be undone.</p>`,
+    );
+    if (!values) return;
+    const typed = (text) => String(text).trim().replace(/\s+/g, ' ').toLowerCase();
+    if (typed(values.confirm) !== typed(name)) return toast('The name didn’t match, so nothing was deleted.');
     try {
-      await api('DELETE', wsPath());
+      await api('DELETE', `/workspaces/${encodeURIComponent(wsId)}`);
       state.me = null;
       state.ws = null;
       toast('Workspace deleted');
@@ -916,10 +950,10 @@ const formActions = {
   },
 };
 
-Object.assign(clickActions, mail.clickActions, account.clickActions);
+Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions);
 Object.assign(changeActions, account.changeActions, mail.changeActions);
-const inputActions = { ...account.inputActions, ...mail.inputActions };
-Object.assign(formActions, mail.formActions, account.formActions);
+const inputActions = { ...account.inputActions, ...mail.inputActions, ...chat.inputActions };
+Object.assign(formActions, mail.formActions, account.formActions, chat.formActions, meetings.formActions);
 
 app.addEventListener('click', (event) => {
   const target = event.target.closest('[data-click]');

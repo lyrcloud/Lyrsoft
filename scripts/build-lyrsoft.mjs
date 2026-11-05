@@ -1,6 +1,6 @@
 // Builds lyrsoft.com (lyrsoft/) into dist-lyrsoft/: the company website at / and the Lyrsoft Work app at /app/.
 // Assets go under /assets/<content hash>/ so they can be cached forever.
-// The Cognito helpers (src/auth.js) are copied alongside, and config.js carries the API URL
+// The Cognito helpers (src/auth.js, src/cognito.js) are copied alongside, and config.js carries the API URL
 // from LYRSOFT_API_BASE (set by scripts/deploy-lyrsoft.sh from the lyrsoft-work-api stack).
 import { createHash } from 'node:crypto';
 import { copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -14,6 +14,7 @@ for (const name of await readdir('lyrsoft')) {
   if (/\.(js|css)$/.test(name)) files.set(name, await readFile(join('lyrsoft', name)));
 }
 files.set('auth.js', await readFile('src/auth.js'));
+files.set('cognito.js', await readFile('src/cognito.js'));
 files.set('config.js', Buffer.from(`export const WORK_API_BASE = ${JSON.stringify(apiBase)};\n`));
 
 const hash = createHash('sha256');

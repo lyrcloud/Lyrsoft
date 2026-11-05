@@ -12,13 +12,25 @@
 //   RATE#lyrbot#<ip>   <hour>      Lyrbot questions per IP per hour (expires via TTL)
 //   RATE#lyrbot#all    <day>       Lyrbot questions for the whole site per day (expires via TTL)
 //
-// Members are keyed by email, so people can be invited before they first sign in. Emails are
-// only trusted from Google sign-ins (Cognito doesn't mark them verified, and the GitHub bridge
-// passes through whatever GitHub reports), so other providers are refused.
+//   PROFILE#<sub> META             Lyrsoft account profile GSI1: PROFILE / <email>
+//   CONFIG      UPDATES            product update emails sent so far (newest first)
+//   RATE#sms#<sub> | RATE#sms#all  <day>   mobile codes texted (expires via TTL)
 //
-// Two routes are public: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
+// Members are keyed by email, so people can be invited before they first sign in. Emails are
+// only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
+// with a code (roles.mjs emailTrusted); GitHub passes through whatever GitHub reports, so it's
+// refused.
+//
+// Public routes: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
 // item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox),
-// and POST /public/lyrbot, the site's help assistant (lyrbot.mjs).
+// POST /public/lyrbot, the site's help assistant (lyrbot.mjs), and GET|POST /public/unsubscribe,
+// the signed link in product update emails.
+//
+// Accounts (account.mjs): GET /me creates or refreshes the caller's profile (a new one gets the
+// welcome email); PATCH /me/profile, POST /me/phone, POST /me/phone/verify and DELETE /me/phone edit
+// it. Admin console: GET /admin/users, PATCH /admin/users/{id} (role, disabled), GET|POST
+// /admin/updates (product update emails, sent by the super admin).
+import { randomUUID } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   BatchWriteCommand,
@@ -29,11 +41,35 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { AdminGetUserCommand, CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { S3Client } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { SESv2Client } from '@aws-sdk/client-sesv2';
-import { roleFor, SUPER_ADMIN_PROVIDER } from '../account/roles.mjs';
-import { canUseMailbox } from '../mail/model.mjs';
+import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
+import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
+import { emailTrusted, isStaff, providerFromUsername, roleFor, userUpdateError } from '../account/roles.mjs';
+import { buildRawEmail, canUseMailbox } from '../mail/model.mjs';
+import {
+  adminProfile,
+  checkCode,
+  CODE_TTL_MS,
+  hashCode,
+  newCode,
+  normalizePhone,
+  profileKey,
+  selfProfile,
+  selfUpdateError,
+  SMS_PER_USER_PER_DAY,
+  SMS_SITE_PER_DAY,
+  smsMessage,
+  unsubscribePage,
+  unsubscribeToken,
+  updateEmail,
+  updateEmailError,
+  updateRecipients,
+  UPDATES_KEPT,
+  validUnsubscribeToken,
+  welcomeEmail,
+} from './account.mjs';
 import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -72,7 +108,16 @@ const CONTACT_MAILBOX = (process.env.CONTACT_MAILBOX || 'hello@lyrsoft.com').toL
 const SITE_URL = (process.env.SITE_URL || 'https://lyrsoft.com').replace(/\/$/, '');
 // Secrets Manager secret holding the Anthropic API key for Lyrbot; ANTHROPIC_API_KEY wins (local dev).
 const ANTHROPIC_SECRET = process.env.ANTHROPIC_SECRET;
+// Secrets Manager secret that signs unsubscribe links and mobile codes; APP_SECRET wins (local dev).
+const APP_SECRET_NAME = process.env.APP_SECRET_NAME;
+// SES sender for account emails, e.g. "Lyrsoft <no-reply@lyrsoft.com>"; without it none are sent.
+const MAIL_FROM = process.env.MAIL_FROM;
+const MAIL_REPLY_TO = process.env.MAIL_REPLY_TO;
+const USER_POOL_ID = process.env.USER_POOL_ID;
 const s3 = new S3Client({});
+const ses = new SESv2Client({});
+const sns = new SNSClient({});
+const cognito = new CognitoIdentityProviderClient({});
 const mailStore = createMailStore({ ddb, s3, table: TABLE, bucket: MAIL_BUCKET });
 
 class HttpError extends Error {
@@ -130,6 +175,26 @@ async function deleteBoardData(boardId) {
 
 const identityCache = new Map(); // access token -> { identity, expires }
 
+// The caller's Cognito attributes. Hosted UI tokens (Google) work with userInfo; tokens from the
+// email-and-password form don't carry the openid scope, so those are read with AdminGetUser.
+async function cognitoUser(token, username) {
+  const res = await fetch(`https://${COGNITO_DOMAIN}/oauth2/userInfo`, { headers: { authorization: `Bearer ${token}` } });
+  if (res.ok) return res.json();
+  const detail = (await res.text()).slice(0, 300);
+  if (username && USER_POOL_ID) {
+    try {
+      const { UserAttributes = [], Username } = await cognito.send(new AdminGetUserCommand({ UserPoolId: USER_POOL_ID, Username: username }));
+      return { ...Object.fromEntries(UserAttributes.map(({ Name, Value }) => [Name, Value])), username: Username };
+    } catch (error) {
+      console.warn('AdminGetUser failed', error.name, error.message);
+    }
+  }
+  console.warn('userInfo failed', res.status, detail);
+  throw new HttpError(401, 'Your session has expired. Please sign in again.');
+}
+
+const getProfile = (userId) => get(profileKey(userId).PK, 'META');
+
 async function identify(event) {
   const claims = event.requestContext?.authorizer?.jwt?.claims;
   if (!claims?.sub) throw new HttpError(401, 'unauthorized');
@@ -139,25 +204,32 @@ async function identify(event) {
 
   // userInfo, not GetUser: GetUser needs the aws.cognito.signin.user.admin scope, which the app
   // client doesn't grant, so every call failed and signed-in users were sent back to sign in.
-  const res = await fetch(`https://${COGNITO_DOMAIN}/oauth2/userInfo`, { headers: { authorization: `Bearer ${token}` } });
-  if (!res.ok) {
-    console.warn('userInfo failed', res.status, (await res.text()).slice(0, 300));
-    throw new HttpError(401, 'Your session has expired. Please sign in again.');
+  const user = await cognitoUser(token, claims.username);
+  // The provider comes from the username ("GoogleOIDC_123…"), in whatever case Cognito sends it.
+  const provider = providerFromUsername(user.username || claims.username);
+  const email = String(user.email || '').toLowerCase();
+  if (!email || !emailTrusted(provider, user.email_verified)) {
+    throw new HttpError(403, 'Please sign in with Google, or with an email address you’ve confirmed. GitHub sign-in isn’t supported in Lyrsoft.');
   }
-  const user = await res.json();
-  const attr = (name) => user[name] ?? null;
-  const provider = String(user.username || '').split('_')[0];
-  const email = String(attr('email') || '').toLowerCase();
-  if (provider !== SUPER_ADMIN_PROVIDER || !email) throw new HttpError(403, 'Please sign in with Google to use Lyrsoft.');
 
-  const account = ACCOUNTS_TABLE
-    ? (await ddb.send(new GetCommand({ TableName: ACCOUNTS_TABLE, Key: { userId: claims.sub } }))).Item
-    : null;
+  const [account, profile] = await Promise.all([
+    ACCOUNTS_TABLE ? ddb.send(new GetCommand({ TableName: ACCOUNTS_TABLE, Key: { userId: claims.sub } })).then((r) => r.Item) : null,
+    getProfile(claims.sub),
+  ]);
+  // Admins come from either Lyrcloud (the shared account row) or Lyrsoft's own admin console.
+  const storedRole = account?.role === 'admin' || profile?.role === 'admin' ? 'admin' : 'user';
+  const globalRole = roleFor({ provider, email, role: storedRole }, SUPER_ADMIN_EMAIL);
+  if (profile?.disabled === true && globalRole !== 'superadmin') {
+    throw new HttpError(403, 'This account has been disabled. Contact hello@lyrsoft.com.');
+  }
+  const providerName = user.name || '';
   const identity = {
     userId: claims.sub,
     email,
-    name: attr('name') || '',
-    globalRole: roleFor({ provider, email, role: account?.role }, SUPER_ADMIN_EMAIL),
+    provider,
+    providerName,
+    name: (profile?.nameLocked ? profile.name : providerName || profile?.name) || '',
+    globalRole,
   };
   identityCache.set(token, { identity, expires: Date.now() + 60_000 });
   if (identityCache.size > 500) identityCache.delete(identityCache.keys().next().value);
@@ -255,8 +327,249 @@ route('GET', '/me', async (me) => {
   }
   workspaces.sort((a, b) => a.name.localeCompare(b.name));
   const mailboxCount = (await mailStore.listMailboxes()).filter((m) => canUseMailbox(me, m)).length;
-  return { email: me.email, name: me.name, globalRole: me.globalRole, workspaces, mailboxCount };
+  const profile = await touchProfile(me);
+  return { email: me.email, name: me.name, globalRole: me.globalRole, workspaces, mailboxCount, profile: selfProfile(profile, me.globalRole) };
 });
+
+// ------------------------------------------------------------------ accounts
+
+let appSecret;
+async function getAppSecret() {
+  if (process.env.APP_SECRET) return process.env.APP_SECRET;
+  if (!APP_SECRET_NAME) throw new HttpError(503, 'Account security isn’t set up yet (APP_SECRET_NAME).');
+  appSecret ??= (await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: APP_SECRET_NAME }))).SecretString.trim();
+  return appSecret;
+}
+
+async function sendAccountEmail(to, { subject, text, html }, headers = []) {
+  if (!MAIL_FROM) throw new Error('MAIL_FROM is not set');
+  const [, fromName = '', fromAddress = MAIL_FROM] = MAIL_FROM.match(/^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/) || [];
+  const raw = buildRawEmail({
+    from: { name: fromName, address: fromAddress },
+    to: [to],
+    subject,
+    text,
+    html,
+    headers: [...(MAIL_REPLY_TO ? [['Reply-To', MAIL_REPLY_TO]] : []), ...headers],
+  });
+  await ses.send(new SendEmailCommand({
+    FromEmailAddress: fromAddress,
+    Destination: { ToAddresses: [to] },
+    Content: { Raw: { Data: Buffer.from(raw) } },
+  }));
+}
+
+// Creates or refreshes the caller's profile row on each app load. A new account gets the welcome email.
+async function touchProfile(me) {
+  const existing = await getProfile(me.userId);
+  const at = now();
+  const profile = {
+    ...existing,
+    ...profileKey(me.userId),
+    GSI1PK: 'PROFILE',
+    GSI1SK: me.email,
+    userId: me.userId,
+    email: me.email,
+    name: existing?.nameLocked ? existing.name : me.providerName || existing?.name || null,
+    provider: me.provider,
+    createdAt: existing?.createdAt || at,
+    lastLoginAt: at,
+  };
+  if (!profile.welcomeSentAt && MAIL_FROM) {
+    try {
+      await sendAccountEmail(profile.email, welcomeEmail(profile, SITE_URL));
+      profile.welcomeSentAt = at;
+    } catch (error) {
+      console.error('Welcome email failed', error);
+    }
+  }
+  await put(profile);
+  return profile;
+}
+
+async function saveProfile(me, changes, remove = []) {
+  const profile = { ...(await getProfile(me.userId)), ...changes };
+  for (const key of remove) delete profile[key];
+  await put(profile);
+  return profile;
+}
+
+route('PATCH', '/me/profile', async (me, _p, body) => {
+  const refused = selfUpdateError(body);
+  if (refused) throw new HttpError(...refused);
+  const changes = { profileUpdatedAt: now() };
+  if ('name' in body) {
+    // A name the person picked sticks over the identity provider's on later sign-ins.
+    changes.name = body.name.trim();
+    changes.nameLocked = true;
+    me.name = changes.name;
+  }
+  if ('emailUpdates' in body) {
+    changes.emailUpdates = body.emailUpdates;
+    changes.emailUpdatesChangedAt = changes.profileUpdatedAt;
+  }
+  return { profile: selfProfile(await saveProfile(me, changes), me.globalRole) };
+});
+
+route('POST', '/me/phone', async (me, _p, body) => {
+  const phone = normalizePhone(body.phone);
+  if (!phone) throw new HttpError(400, 'Enter your mobile number with its country code, e.g. +91 98765 43210.');
+  const profile = await getProfile(me.userId);
+  if (profile?.phoneVerified && profile.phone === phone) throw new HttpError(400, 'That number is already verified.');
+  if (Date.now() - (profile?.phonePending?.sentAt || 0) < 30_000) throw new HttpError(429, 'Wait 30 seconds before asking for another code.');
+  if ((await countUse(`sms#${me.userId}`, 'day')) > SMS_PER_USER_PER_DAY) throw new HttpError(429, 'That’s enough codes for today. Try again tomorrow.');
+  if ((await countUse('sms#all', 'day')) > SMS_SITE_PER_DAY) throw new HttpError(429, 'Text messages are busy right now. Try again later.');
+  const secret = await getAppSecret();
+  const code = newCode();
+  try {
+    await sns.send(new PublishCommand({
+      PhoneNumber: phone,
+      Message: smsMessage(code),
+      MessageAttributes: { 'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' } },
+    }));
+  } catch (error) {
+    console.error('SMS failed', error);
+    throw new HttpError(502, 'We couldn’t text that number. Check it and try again.');
+  }
+  const phonePending = { phone, hash: hashCode(secret, me.userId, phone, code), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, sentAt: Date.now() };
+  return { profile: selfProfile(await saveProfile(me, { phonePending }), me.globalRole) };
+});
+
+route('POST', '/me/phone/verify', async (me, _p, body) => {
+  const profile = await getProfile(me.userId);
+  const result = checkCode(await getAppSecret(), profile, body.code);
+  if (result.error) {
+    if (result.wrong) await saveProfile(me, { phonePending: { ...profile.phonePending, attempts: (profile.phonePending.attempts || 0) + 1 } });
+    throw new HttpError(...result.error);
+  }
+  const saved = await saveProfile(me, { phone: result.phone, phoneVerified: true, phoneVerifiedAt: now() }, ['phonePending']);
+  return { profile: selfProfile(saved, me.globalRole) };
+});
+
+route('DELETE', '/me/phone', async (me) => ({
+  profile: selfProfile(await saveProfile(me, {}, ['phone', 'phoneVerified', 'phoneVerifiedAt', 'phonePending']), me.globalRole),
+}));
+
+// ------------------------------------------------------------------ admin console
+
+const requireStaff = (me) => {
+  if (!isStaff(me.globalRole)) throw new HttpError(403, 'Admins only.');
+};
+
+const listProfiles = () => queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': 'PROFILE' } });
+
+// A profile's role, counting admins made in Lyrcloud as well as in Lyrsoft.
+async function roleOf(profile) {
+  const account = ACCOUNTS_TABLE ? (await ddb.send(new GetCommand({ TableName: ACCOUNTS_TABLE, Key: { userId: profile.userId } }))).Item : null;
+  const role = roleFor({ provider: profile.provider, email: profile.email, role: profile.role === 'admin' || account?.role === 'admin' ? 'admin' : 'user' }, SUPER_ADMIN_EMAIL);
+  return { role, lyrcloudAdmin: account?.role === 'admin' };
+}
+
+route('GET', '/admin/users', async (me) => {
+  requireStaff(me);
+  const users = await Promise.all((await listProfiles()).map(async (profile) => {
+    const { role, lyrcloudAdmin } = await roleOf(profile);
+    return { ...adminProfile(profile, role), lyrcloudAdmin };
+  }));
+  users.sort((a, b) => String(b.lastLoginAt).localeCompare(String(a.lastLoginAt)));
+  return { users };
+});
+
+route('PATCH', '/admin/users/{userId}', async (me, { userId }, body) => {
+  requireStaff(me);
+  const target = await getProfile(userId);
+  if (!target) throw new HttpError(404, 'No such user.');
+  const { role: targetRole, lyrcloudAdmin } = await roleOf(target);
+  const refused = userUpdateError(me.globalRole, targetRole, body);
+  if (refused) throw new HttpError(...refused);
+  const changes = Object.fromEntries(Object.entries(body).filter(([key]) => ['role', 'disabled'].includes(key)));
+  if (changes.role === 'user' && lyrcloudAdmin) throw new HttpError(400, 'This person is an admin in Lyrcloud. Change their role there.');
+  const next = { ...target, ...changes, updatedAt: now(), updatedBy: me.email };
+  await put(next);
+  const { role } = await roleOf(next);
+  return { user: { ...adminProfile(next, role), lyrcloudAdmin } };
+});
+
+const getUpdates = async () => (await get('CONFIG', 'UPDATES'))?.updates || [];
+const saveUpdates = (updates) => put({ PK: 'CONFIG', SK: 'UPDATES', updates: updates.slice(0, UPDATES_KEPT) });
+const apiBaseUrl = (event) => (event?.requestContext?.domainName ? `https://${event.requestContext.domainName}` : process.env.API_BASE_URL || 'http://localhost:8787');
+
+route('GET', '/admin/updates', async (me) => {
+  requireStaff(me);
+  return {
+    updates: (await getUpdates()).map(({ message, ...update }) => update),
+    recipients: updateRecipients(await listProfiles()).length,
+    mailEnabled: Boolean(MAIL_FROM),
+  };
+});
+
+// Sends an update to everyone opted in who hasn't had it yet, for up to ~20 seconds (API Gateway
+// gives up at 30). The console calls again with the updateId until nothing remains.
+route('POST', '/admin/updates', async (me, _p, body, _q, event) => {
+  if (me.globalRole !== 'superadmin') throw new HttpError(403, 'Only the super admin can email updates.');
+  if (!MAIL_FROM) throw new HttpError(503, 'Email sending isn’t set up yet (MAIL_FROM).');
+  const refused = updateEmailError(body);
+  if (refused) throw new HttpError(...refused);
+  const updates = await getUpdates();
+  let update;
+  if (body.updateId) {
+    update = updates.find((item) => item.id === body.updateId);
+    if (!update) throw new HttpError(404, 'No such update.');
+  } else {
+    update = { id: `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`, subject: body.subject.trim(), message: body.message.trim(), sentAt: now(), sentBy: me.email, sent: 0, failed: 0 };
+    updates.unshift(update);
+    await saveUpdates(updates);
+  }
+
+  const secret = await getAppSecret();
+  const base = apiBaseUrl(event);
+  const queue = updateRecipients(await listProfiles()).filter((p) => p.lastUpdateId !== update.id && p.failedUpdateId !== update.id);
+  const deadline = Date.now() + 20_000;
+  const worker = async () => {
+    while (queue.length && Date.now() < deadline) {
+      const profile = queue.shift();
+      const url = `${base}/public/unsubscribe?u=${encodeURIComponent(profile.userId)}&t=${unsubscribeToken(secret, profile.userId)}`;
+      try {
+        await sendAccountEmail(profile.email, updateEmail({ subject: update.subject, message: update.message, unsubscribeUrl: url }, SITE_URL), [
+          ['List-Unsubscribe', `<${url}>`],
+          ['List-Unsubscribe-Post', 'List-Unsubscribe=One-Click'],
+        ]);
+        await put({ ...(await getProfile(profile.userId)), lastUpdateId: update.id });
+        update.sent += 1;
+      } catch (error) {
+        console.error('Update email failed', profile.userId, error);
+        await put({ ...(await getProfile(profile.userId)), failedUpdateId: update.id });
+        update.failed += 1;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+
+  // Re-read so a send running alongside isn't overwritten, then store this update's counts.
+  const latest = await getUpdates();
+  const index = latest.findIndex((item) => item.id === update.id);
+  if (index === -1) latest.unshift(update);
+  else latest[index] = update;
+  await saveUpdates(latest);
+  return { update: { ...update, message: undefined }, remaining: queue.length };
+});
+
+// GET shows a button (so mail scanners that open links don't unsubscribe anyone); POST unsubscribes,
+// which is also what mail apps' one-click "Unsubscribe" sends.
+async function unsubscribe(event, method) {
+  const html = (statusCode, body) => ({ statusCode, headers: { 'content-type': 'text/html; charset=utf-8' }, body });
+  const params = new URLSearchParams(event.rawQueryString || '');
+  const userId = params.get('u');
+  const token = params.get('t');
+  const profile = userId && ID_SAFE.test(userId) ? await getProfile(userId) : null;
+  if (!profile || !validUnsubscribeToken(await getAppSecret(), userId, token)) return html(400, unsubscribePage('invalid', SITE_URL));
+  if (method === 'GET') {
+    return html(200, unsubscribePage('confirm', SITE_URL, `/public/unsubscribe?u=${encodeURIComponent(userId)}&t=${encodeURIComponent(token)}`));
+  }
+  await put({ ...profile, emailUpdates: false, emailUpdatesChangedAt: now() });
+  return html(200, unsubscribePage('done', SITE_URL));
+}
+const ID_SAFE = /^[\w@.:-]{1,128}$/;
 
 route('POST', '/workspaces', async (me, _p, body) => {
   const { workspace, boardId } = await createWorkspace({
@@ -459,7 +772,7 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
   return [201, { update: updateOut(update) }];
 });
 
-registerMailRoutes(route, { store: mailStore, s3, ses: new SESv2Client({}), bucket: MAIL_BUCKET, HttpError });
+registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
 
 // ------------------------------------------------------------------ public contact form
 
@@ -594,6 +907,7 @@ export const handler = async (event) => {
   try {
     if (method === 'POST' && path === '/public/contact') return await submitContact(event);
     if (method === 'POST' && path === '/public/lyrbot') return await lyrbotChat(event);
+    if ((method === 'GET' || method === 'POST') && path === '/public/unsubscribe') return await unsubscribe(event, method);
     const me = await identify(event);
     for (const { method: m, re, keys, fn } of routes) {
       const match = m === method && path.match(re);
@@ -601,7 +915,7 @@ export const handler = async (event) => {
       const params = Object.fromEntries(keys.map((key, i) => [key, decodeURIComponent(match[i + 1])]));
       const body = parseBody(event);
       if (body === null) throw new HttpError(400, 'Invalid JSON body.');
-      const result = await fn(me, params, body, new URLSearchParams(event.rawQueryString || ''));
+      const result = await fn(me, params, body, new URLSearchParams(event.rawQueryString || ''), event);
       return Array.isArray(result) ? json(result[0], result[1]) : json(200, result);
     }
     return json(404, { error: 'not_found' });

@@ -11,6 +11,7 @@
 //   POST /__dev/inbound  { from, fromName, to: [..], subject, text, html?, inReplyTo?, attachment? }
 //                        simulates an incoming email through the real processor (api/mail/inbound.mjs)
 //   GET  /__dev/sent     what the app "sent" through SES
+//   GET  /__dev/sms      texts the app "sent" through SNS (mobile verification codes)
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 
@@ -19,13 +20,17 @@ register('data:text/javascript,' + encodeURIComponent(`
   const fakeAws = ${JSON.stringify(new URL('./dev/fake-aws.mjs', import.meta.url).href)};
   export async function resolve(specifier, context, next) {
     if (specifier === '@aws-sdk/client-dynamodb' || specifier === '@aws-sdk/lib-dynamodb') return { url: fakeDb, shortCircuit: true };
-    if (['@aws-sdk/client-s3', '@aws-sdk/client-sesv2', '@aws-sdk/s3-request-presigner'].includes(specifier)) return { url: fakeAws, shortCircuit: true };
+    if (['@aws-sdk/client-s3', '@aws-sdk/client-sesv2', '@aws-sdk/client-sns', '@aws-sdk/client-cognito-identity-provider', '@aws-sdk/s3-request-presigner'].includes(specifier)) return { url: fakeAws, shortCircuit: true };
     return next(specifier, context);
   }
 `));
 
 process.env.TABLE_NAME = 'lyrsoft-work';
 process.env.MAIL_BUCKET = 'lyrsoft-mail-dev';
+process.env.APP_SECRET ??= 'dev-secret';
+process.env.MAIL_FROM ??= 'Lyrsoft <no-reply@lyrsoft.com>';
+process.env.MAIL_REPLY_TO ??= 'hello@lyrsoft.com';
+process.env.SITE_URL ??= 'http://localhost:5174';
 process.env.MAIL_DOMAINS ??= 'lyrsoft.com,lyrcloud.com,lyrtrip.com,lyrshop.com,lyrpay.com,mrshihab.com';
 const port = Number(process.env.PORT || 8787);
 
@@ -81,6 +86,7 @@ async function devRoute(request, url, body, response) {
     response.writeHead(status, { ...cors, 'content-type': type }).end(type === 'application/json' ? JSON.stringify(data) : data);
   if (request.method === 'POST' && url.pathname === '/__dev/inbound') return send(200, await simulateInbound(JSON.parse(body || '{}')));
   if (request.method === 'GET' && url.pathname === '/__dev/sent') return send(200, fakeAws.sentMail);
+  if (request.method === 'GET' && url.pathname === '/__dev/sms') return send(200, fakeAws.sentSms);
   if (request.method === 'GET' && url.pathname.startsWith('/__dev/s3/')) {
     const object = fakeAws.objects.get(decodeURIComponent(url.pathname.slice('/__dev/s3/'.length)));
     return object ? send(200, object.body, object.contentType || 'application/octet-stream') : send(404, { error: 'missing' });
@@ -106,7 +112,7 @@ createServer(async (request, response) => {
     });
   }
   const token = (request.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const isPublic = request.method === 'POST' && ['/public/contact', '/public/lyrbot'].includes(url.pathname); // AuthorizationType NONE in the template
+  const isPublic = (request.method === 'POST' && ['/public/contact', '/public/lyrbot'].includes(url.pathname)) || url.pathname === '/public/unsubscribe'; // AuthorizationType NONE in the template
   if (!isPublic && !token.startsWith('dev.')) return response.writeHead(401, { ...cors, 'content-type': 'application/json' }).end('{"message":"Unauthorized"}');
   const result = await handler({
     requestContext: {

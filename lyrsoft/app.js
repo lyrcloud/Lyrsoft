@@ -1,9 +1,11 @@
 // Lyrsoft Work — workspaces, boards and items for teams and their clients.
 // A dependency-free, hash-routed app on top of the Lyrsoft work API (api/work/), signed in
 // through the shared Lyrcloud Cognito user pool (src/auth.js).
+import { createAccount } from './account.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
 import { WORK_API_BASE } from './config.js';
 import { createMail } from './mail.js';
+import { showSignIn } from './signin.js';
 
 const app = document.getElementById('app');
 const SIGN_IN_RETRY_KEY = 'lyrsoft.signin.retry_at';
@@ -29,6 +31,13 @@ function toast(message) {
   setTimeout(() => node.remove(), 3200);
 }
 
+// Google sessions go back through Google; email-and-password (or expired) sessions get the sign-in screen.
+function signInAgain() {
+  const tokens = getTokens();
+  if (tokens && tokens.method !== 'password') redirectToLogin(location.pathname + location.hash, 'google');
+  else signInScreen();
+}
+
 async function api(method, path, body) {
   let response;
   try {
@@ -39,7 +48,7 @@ async function api(method, path, body) {
     );
   } catch (error) {
     if (error.message === 'not_authenticated') {
-      redirectToLogin(location.pathname + location.hash, 'google');
+      signInAgain();
       await new Promise(() => {});
     }
     throw new Error('Can’t reach Lyrsoft. Check your connection and try again.');
@@ -51,7 +60,7 @@ async function api(method, path, body) {
     const last = Number(sessionStorage.getItem(SIGN_IN_RETRY_KEY) || 0);
     if (Date.now() - last > 60_000) {
       sessionStorage.setItem(SIGN_IN_RETRY_KEY, String(Date.now()));
-      redirectToLogin(location.pathname + location.hash, 'google');
+      signInAgain();
       await new Promise(() => {});
     }
     throw new Error(`Couldn’t sign you in to Lyrsoft: ${data.error || data.message || 'unauthorized'}. Please try again in a minute.`);
@@ -84,6 +93,8 @@ function parseRoute() {
   const [path, query = ''] = location.hash.replace(/^#/, '').split('?');
   const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
   const params = new URLSearchParams(query);
+  if (parts[0] === 'profile') return { view: 'profile', params };
+  if (parts[0] === 'admin') return { view: 'admin', tab: parts[1] === 'updates' ? 'updates' : 'users', params };
   if (parts[0] === 'mail') {
     if (parts[1] === 'settings') return { view: 'mailSettings', params };
     return { view: 'mail', mailbox: parts[1]?.toLowerCase() || null, params };
@@ -112,6 +123,8 @@ const withParams = (changes) => {
 };
 
 const mail = createMail({ api, esc, toast, render: () => render(), go, withParams, initial, formatDateTime, getMe: () => state.me });
+const account = createAccount({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
+const isAccountView = () => route.view === 'profile' || route.view === 'admin';
 
 // Fetches whatever the current route needs, then renders.
 let loadSeq = 0;
@@ -148,6 +161,7 @@ async function load() {
     }
     if (!itemId) state.updates = null;
     await mail.load(route);
+    await account.load(route);
   } catch (error) {
     if (seq === loadSeq) state.error = error.message;
   }
@@ -183,8 +197,12 @@ function sidebar() {
           : ''
       }
       ${mail.sidebarLinks(route)}
+      ${state.me ? account.sidebarLinks(route) : ''}
     </aside>`;
 }
+
+const crumb = () =>
+  route.view.startsWith('mail') ? 'Mail' : route.view === 'profile' ? 'My profile' : route.view === 'admin' ? 'Admin console' : state.ws?.workspace.name || 'Lyrsoft Work';
 
 function topbar() {
   const me = state.me;
@@ -192,10 +210,10 @@ function topbar() {
   return `
     <header class="topbar">
       <button class="icon-btn menu-toggle" data-click="toggle-sidebar" aria-label="Toggle navigation">☰</button>
-      <span class="crumb">${esc(route.view.startsWith('mail') ? 'Mail' : state.ws?.workspace.name || 'Lyrsoft Work')}</span>
+      <span class="crumb">${esc(crumb())}</span>
       <div class="topbar-right">
         ${staff}
-        ${me ? `<span class="avatar" title="${esc(me.email)}">${initial(me.name || me.email)}</span>` : ''}
+        ${me ? `<a class="avatar" href="#/profile" title="My profile (${esc(me.email)})">${initial(me.name || me.email)}</a>` : ''}
         <button class="btn ghost small" data-click="sign-out">Sign out</button>
       </div>
     </header>`;
@@ -211,10 +229,10 @@ function render() {
   let content;
   if (state.error) {
     content = `<section class="panel empty"><h2>Something went wrong</h2><p>${esc(state.error)}</p><a class="btn primary" href="#/">Go to my workspaces</a></section>`;
-  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route))) {
+  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route)) {
     content = '<p class="loading">Loading…</p>';
   } else {
-    content = route.view.startsWith('mail') ? mail.view(route) : views[route.view]();
+    content = route.view.startsWith('mail') ? mail.view(route) : isAccountView() ? account.view(route) : views[route.view]();
   }
   app.innerHTML = `
     ${sidebar()}
@@ -225,7 +243,7 @@ function render() {
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
   mail.afterRender();
-  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
+  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
 // ------------------------------------------------------------------ views
@@ -235,6 +253,7 @@ const views = {
     const workspaces = state.me.workspaces;
     return `
       ${pageHead(`Hi${state.me.name ? `, ${esc(state.me.name.split(' ')[0])}` : ''}`, 'Your workspaces. Each company or client gets its own private workspace.')}
+      ${account.homeBanner()}
       <div class="ws-grid">
         ${workspaces
           .map(
@@ -895,8 +914,9 @@ const formActions = {
   },
 };
 
-Object.assign(clickActions, mail.clickActions);
-Object.assign(formActions, mail.formActions);
+Object.assign(clickActions, mail.clickActions, account.clickActions);
+Object.assign(changeActions, account.changeActions);
+Object.assign(formActions, mail.formActions, account.formActions);
 
 app.addEventListener('click', (event) => {
   const target = event.target.closest('[data-click]');
@@ -907,6 +927,7 @@ app.addEventListener('change', (event) => {
   if (target) changeActions[target.dataset.change]?.(target);
 });
 app.addEventListener('input', (event) => {
+  if (account.inputActions[event.target.dataset.input]) return account.inputActions[event.target.dataset.input](event.target);
   if (event.target.dataset.input !== 'filter') return;
   state.filter = event.target.value;
   const { selectionStart } = event.target;
@@ -978,16 +999,16 @@ if (devLogin && WORK_API_BASE.startsWith('http://localhost')) {
   history.replaceState(null, '', location.pathname + location.hash);
 }
 
-if (!getTokens()) {
-  app.innerHTML = `
-    <div class="welcome">
-      <img class="brand-mark big" src="/brand/lyrsoft-mark.svg" alt="" />
-      <h1>Lyrsoft <b>Work</b></h1>
-      <p>Plan, track and deliver work with your team and your clients: boards, owners, due dates and updates in one place.</p>
-      <button class="btn primary big" data-click="sign-in">Continue with Google</button>
-      <p class="muted small">A <a href="https://www.lyrcloud.com">Lyrcloud</a> product.</p>
-    </div>`;
-  app.querySelector('[data-click="sign-in"]').addEventListener('click', () => redirectToLogin(location.pathname + location.hash, 'google'));
-} else {
-  load();
+// Signed out: Google or email-and-password sign-in (signin.js). The sign-in screen lives in its own
+// element so its listeners don't mix with the app's.
+function signInScreen() {
+  const screen = document.createElement('div');
+  app.replaceChildren(screen);
+  showSignIn(screen, () => {
+    screen.remove();
+    load();
+  });
 }
+
+if (!getTokens()) signInScreen();
+else load();

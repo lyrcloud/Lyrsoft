@@ -111,7 +111,8 @@ export function formatAddress({ name, address }) {
 
 const base64Lines = (text) => Buffer.from(text, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n');
 
-export function buildRawEmail({ from, to, cc = [], subject, text, html, inReplyTo, references = [], date = new Date() }) {
+// `headers`: extra [name, value] pairs, e.g. List-Unsubscribe on update emails.
+export function buildRawEmail({ from, to, cc = [], subject, text, html, inReplyTo, references = [], date = new Date(), headers: extra = [] }) {
   const boundary = `lyr-${randomBytes(12).toString('hex')}`;
   const headers = [
     ['From', formatAddress(from)],
@@ -121,6 +122,7 @@ export function buildRawEmail({ from, to, cc = [], subject, text, html, inReplyT
     ['Date', date.toUTCString().replace('GMT', '+0000')],
     ...(inReplyTo ? [['In-Reply-To', inReplyTo]] : []),
     ...(references.length ? [['References', references.join(' ')]] : []),
+    ...extra,
     ['MIME-Version', '1.0'],
     ['Content-Type', `multipart/alternative; boundary="${boundary}"`],
   ];

@@ -7,14 +7,21 @@ Everything behind **https://lyrsoft.com**:
 - **Lyrsoft Mail**: shared inboxes (support@, hello@ …) for every mail domain, received and sent through Amazon SES.
 - **Lyrbot**: the website's help assistant, as on Lyrshop and Lyrtrip. A robot button opens a chat answered by Claude (`api/work/lyrbot.mjs`) from the facts in its prompt, with WhatsApp and email for a person. Capped at 20 questions per visitor per hour and 1,500 per day for the whole site. It uses the Anthropic API key in the `lyrshop/anthropic` secret (stack parameter `AnthropicSecretName`; blank turns it off).
 
-Sign-in uses the Lyrcloud Cognito user pool (Google). The super admin is **lyrclouds@gmail.com** (stack parameter `SuperAdminEmail`); it is never stored, but derived on every request from a Google sign-in with that email.
+Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and password** (`lyrsoft/signin.js`, `src/cognito.js`) confirmed with a 6-digit code that Cognito emails (sent from no-reply@lyrcloud.com, since the pool is shared). GitHub sign-ins are refused because GitHub emails aren't proof of ownership. The super admin is **lyrclouds@gmail.com** (stack parameter `SuperAdminEmail`); it is never stored, but derived on every request from a Google sign-in with that email, whatever case Cognito gives the provider name.
+
+## Accounts and admin console
+
+- **Profile** (`/app/#/profile`, `lyrsoft/account.js`): name, verified email, mobile number and email settings. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.
+- **Mobile verification:** `POST /me/phone` texts a 6-digit code through Amazon SNS and `POST /me/phone/verify` checks it; only an HMAC of the code is stored (key in the `lyrsoft/app` secret). Limits: 5 codes per person and 200 for the site per day. The AWS account's SMS is still in the **SNS sandbox** ($1/month spend limit), so codes only reach numbers verified in the SNS console until production SMS access is granted.
+- **Emails** (from `Lyrsoft <no-reply@lyrsoft.com>`, stack parameter `MailFrom`, replies to hello@lyrsoft.com): a welcome email on first sign-in, and product updates the super admin sends from the admin console. Each update has a signed one-click unsubscribe link (`/public/unsubscribe`), and people can switch updates off in their profile.
+- **Admin console** (`/app/#/admin`, admins and the super admin): every account with sign-in method, mobile, role and last sign-in. Admins disable regular users; only the super admin makes or removes admins and emails updates. Admins made in Lyrcloud are admins here too.
 
 ## Layout
 
 ```
 lyrsoft/            website (home.html), app (index.html, app.js, mail.js), sign-in callback
 lyrsoft/brand/      logo (SVG), favicons and web manifest, served at /brand/ (and /favicon.ico)
-src/auth.js         Cognito Hosted UI helpers (copy of Lyrcloud's src/auth.js)
+src/auth.js         Cognito sign-in helpers: Google (Hosted UI) and email and password (src/cognito.js), copies of Lyrcloud's
 api/work/           work API Lambda: workspaces, boards, items, contact form, Lyrbot, mail routes
 api/mail/           mail model, store, routes and the SES inbound processor
 api/account/        roles.mjs: super admin / admin rules (copy of Lyrcloud's)

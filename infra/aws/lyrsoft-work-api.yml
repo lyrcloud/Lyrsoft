@@ -40,6 +40,13 @@ Parameters:
     Type: String
     Default: lyrshop/anthropic
     Description: Secrets Manager secret holding the Anthropic API key Lyrbot uses (shared with Lyrshop). Blank turns Lyrbot off.
+  MailFrom:
+    Type: String
+    Default: 'Lyrsoft <no-reply@lyrsoft.com>'
+    Description: Sender of account emails (welcome, product updates). Its domain must be a verified SES identity. Blank turns them off.
+  MailReplyTo:
+    Type: String
+    Default: hello@lyrsoft.com
 
 Conditions:
   HasAnthropicSecret: !Not [!Equals [!Ref AnthropicSecretName, '']]
@@ -81,6 +88,16 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # Signs mobile verification codes and the unsubscribe links in update emails.
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: lyrsoft/app
+      Description: Lyrsoft work API signing key (mobile codes, unsubscribe links)
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
   WorkFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -119,12 +136,31 @@ Resources:
               - Effect: Allow
                 Action: [s3:GetObject, s3:PutObject]
                 Resource: !Sub '${MailBucket.Arn}/*'
+              # configuration-set/*: SES also checks the identity's default configuration set
+              # (my-first-configuration-set), so without it every send was refused.
               - Effect: Allow
                 Action: [ses:SendEmail, ses:SendRawEmail]
-                Resource: !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*'
+                Resource:
+                  - !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*'
+                  - !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/*'
               - Effect: Allow
                 Action: [ses:GetAccount, ses:GetEmailIdentity]
                 Resource: '*'
+        - PolicyName: AccountAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Text messages straight to phone numbers only, never to SNS topics.
+              - Effect: Allow
+                Action: sns:Publish
+                NotResource: 'arn:aws:sns:*:*:*'
+              # Profile lookups for email-and-password sign-ins, whose tokens userInfo refuses.
+              - Effect: Allow
+                Action: cognito-idp:AdminGetUser
+                Resource: !Sub 'arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}'
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref AppSecret
         - !If
           - HasAnthropicSecret
           - PolicyName: LyrbotSecret
@@ -154,6 +190,10 @@ Resources:
           MAIL_DOMAINS: !Join [',', !Ref MailDomains]
           CONTACT_MAILBOX: !Ref ContactMailbox
           ANTHROPIC_SECRET: !Ref AnthropicSecretName
+          APP_SECRET_NAME: !Ref AppSecret
+          MAIL_FROM: !Ref MailFrom
+          MAIL_REPLY_TO: !Ref MailReplyTo
+          USER_POOL_ID: !Ref UserPoolId
           SITE_URL: !Sub
             - 'https://${Origin}'
             - Origin: !Select [2, !Split ['/', !Select [0, !Ref AllowedOrigins]]]
@@ -360,8 +400,9 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
 
-  # The two unauthenticated routes: the lyrsoft.com contact form and Lyrbot. More specific than
-  # POST /{proxy+}, so API Gateway picks them. Throttled here, and per IP in the Lambda.
+  # The unauthenticated routes: the lyrsoft.com contact form, Lyrbot and the unsubscribe link in
+  # update emails. More specific than /{proxy+}, so API Gateway picks them. Throttled here, and per
+  # IP in the Lambda.
   ContactRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -378,9 +419,25 @@ Resources:
       Target: !Sub 'integrations/${LambdaIntegration}'
       AuthorizationType: NONE
 
+  UnsubscribeGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /public/unsubscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  UnsubscribePostRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/unsubscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
   Stage:
     Type: AWS::ApiGatewayV2::Stage
-    DependsOn: [ContactRoute, LyrbotRoute]
+    DependsOn: [ContactRoute, LyrbotRoute, UnsubscribeGetRoute, UnsubscribePostRoute]
     Properties:
       ApiId: !Ref HttpApi
       StageName: '$default'
@@ -395,6 +452,12 @@ Resources:
         'POST /public/lyrbot':
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 2
+        'GET /public/unsubscribe':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+        'POST /public/unsubscribe':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission

@@ -30,3 +30,27 @@ test('publicProfile reports the derived role', () => {
   assert.equal(profile.role, 'superadmin');
   assert.equal(profile.userId, 'u1');
 });
+
+test('provider names match in any case, and email accounts are recognised', async () => {
+  const { normalizeProvider, providerFromUsername, emailTrusted } = await import('./roles.mjs');
+  assert.equal(normalizeProvider('googleoidc'), 'GoogleOIDC');
+  assert.equal(providerFromUsername('googleoidc_1089'), 'GoogleOIDC');
+  assert.equal(providerFromUsername('GitHubBridge_github:1'), 'GitHubBridge');
+  assert.equal(providerFromUsername('ada@example.com'), 'Cognito');
+  assert.equal(roleFor({ provider: 'googleoidc', email: SUPER }, SUPER), 'superadmin');
+  assert.equal(emailTrusted('GoogleOIDC', 'false'), true);
+  assert.equal(emailTrusted('Cognito', 'true'), true);
+  assert.equal(emailTrusted('Cognito', 'false'), false);
+  assert.equal(emailTrusted('GitHubBridge', 'true'), false);
+});
+
+test('admins manage users; only the super admin manages admins', async () => {
+  const { userUpdateError } = await import('./roles.mjs');
+  assert.equal(userUpdateError('admin', 'user', { disabled: true }), null);
+  assert.equal(userUpdateError('admin', 'user', { role: 'admin' })?.[0], 403);
+  assert.equal(userUpdateError('admin', 'admin', { disabled: true })?.[0], 403);
+  assert.equal(userUpdateError('superadmin', 'admin', { role: 'user' }), null);
+  assert.equal(userUpdateError('superadmin', 'superadmin', { disabled: true })?.[0], 400);
+  assert.equal(userUpdateError('superadmin', 'user', { plan: 'x' })?.[0], 400);
+  assert.equal(userUpdateError('user', 'user', { disabled: true })?.[0], 403);
+});

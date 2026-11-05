@@ -796,6 +796,8 @@ registerCollabRoutes(route, {
   sendEmail: (to, email) => sendAccountEmail(to, email),
   siteUrl: SITE_URL,
   chime: new ChimeSDKMeetingsClient({}),
+  s3,
+  bucket: MAIL_BUCKET,
   now,
   newId,
 });

@@ -57,3 +57,33 @@ test('groups: ids and names', async () => {
   assert.throws(() => cleanGroupName(' '), /name/);
   assert.throws(() => cleanGroupName('x'.repeat(81)), /name/);
 });
+
+test('reactions toggle per person and come out in a fixed order', async () => {
+  const { toggleReaction, reactionsOut } = await import('./collab-model.mjs');
+  let r = toggleReaction({}, '❤️', 'a@x.com');
+  r = toggleReaction(r, '👍', 'b@x.com');
+  r = toggleReaction(r, '❤️', 'b@x.com');
+  assert.deepEqual(r, { '❤️': ['a@x.com', 'b@x.com'], '👍': ['b@x.com'] });
+  assert.deepEqual(reactionsOut(r, 'a@x.com').map((x) => [x.emoji, x.count, x.mine]), [['👍', 1, false], ['❤️', 2, true]]);
+  r = toggleReaction(r, '👍', 'b@x.com');
+  assert.equal('👍' in r, false);
+  assert.throws(() => toggleReaction({}, '💩', 'a@x.com'), /Unknown reaction/);
+});
+
+test('attachments must be uploaded to the same conversation and within limits', async () => {
+  const { cleanAttachments } = await import('./collab-model.mjs');
+  const ok = { key: 'chat/grp.0123456789abcdef01234567/u/photo.jpg', name: 'photo.jpg', type: 'image/jpeg', size: 1000 };
+  assert.deepEqual(cleanAttachments([ok], 'grp.0123456789abcdef01234567'), [ok]);
+  assert.deepEqual(cleanAttachments(undefined, 'x'), []);
+  assert.throws(() => cleanAttachments([ok], 'ws.other'), /wasn’t uploaded/);
+  assert.throws(() => cleanAttachments([{ ...ok, key: 'chat/grp.0123456789abcdef01234567/../x' }], 'grp.0123456789abcdef01234567'), /wasn’t uploaded/);
+  assert.throws(() => cleanAttachments([{ ...ok, size: 26 * 1024 * 1024 }], 'grp.0123456789abcdef01234567'), /25 MB/);
+  assert.throws(() => cleanAttachments(Array(11).fill(ok), 'grp.0123456789abcdef01234567'), /up to 10/);
+});
+
+test('a reply quotes the author and the start of the message', async () => {
+  const { replyQuote } = await import('./collab-model.mjs');
+  assert.deepEqual(replyQuote({ id: 'm1', createdAt: 't', authorEmail: 'a@x.com', authorName: 'Ada', body: 'Hello   there' }), { id: 'm1', at: 't', authorEmail: 'a@x.com', authorName: 'Ada', snippet: 'Hello there' });
+  assert.equal(replyQuote({ id: 'm', createdAt: 't', authorEmail: 'a', body: '', attachments: [{}, {}] }).snippet, '📎 2 files');
+  assert.equal(replyQuote({ id: 'm', createdAt: 't', authorEmail: 'a', body: 'x', deletedAt: 't' }).snippet, 'Message unsent');
+});

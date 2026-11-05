@@ -5,10 +5,11 @@
 //
 // Calls run on Amazon Chime SDK (lyrsoft/chime-sdk.js, loaded only when someone joins). The call room
 // lives in its own element on <body>, outside the app's re-rendered area, so navigating or re-rendering
-// never cuts the call. Recording uses the browser's screen capture and MediaRecorder: it records the
+// never cuts the call. The call's chat panel is the meeting's conversation (the same one as in
+// Messages), drawn by chat.js's ConversationView. Recording uses the browser's screen capture and MediaRecorder: it records the
 // screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file
 // on your device. Nothing is uploaded.
-export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog }) {
+export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog, chat }) {
   const meet = { list: null, lobby: null, scheduling: false };
   let call = null; // the active call (see joinCall)
   let recorder = null; // the active recording (see startRecording)
@@ -55,6 +56,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         <div class="meeting-actions">
           ${m.cancelled ? '' : `<a class="btn small primary" href="#/meet/${encodeURIComponent(m.id)}">Join</a>`}
           ${m.cancelled ? '' : `<button class="btn small" data-click="meet-copy" data-url="${esc(m.joinUrl)}">🔗 Copy link</button>`}
+          ${m.conv ? `<a class="btn small" href="#/chat/${encodeURIComponent(m.conv)}">💬 Chat</a>` : ''}
           ${m.canManage && !m.cancelled ? `<button class="btn small" data-click="meet-invite" data-id="${esc(m.id)}">+ Invite</button><button class="btn small ghost" data-click="meet-cancel" data-id="${esc(m.id)}">Cancel</button>` : ''}
         </div>
       </article>`;
@@ -124,6 +126,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         }
         <div class="row lobby-links">
           <button class="btn small ghost" data-click="meet-copy" data-url="${esc(m.joinUrl)}">🔗 Copy invite link</button>
+          ${m.conv ? `<a class="btn small ghost" href="#/chat/${encodeURIComponent(m.conv)}">💬 Meeting chat</a>` : ''}
           ${m.canManage && !m.cancelled ? `<button class="btn small ghost" data-click="meet-invite" data-id="${esc(m.id)}">+ Invite people</button>` : ''}
           <a class="btn small ghost" href="#/meetings">All meetings</a>
         </div>
@@ -158,19 +161,27 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
             <b class="call-title"></b><span class="call-status muted"></span><span class="rec-indicator" hidden>● REC <span class="rec-time">0:00</span></span>
             <button class="icon-btn call-min" data-call="minimize" title="Minimize">▁</button>
           </header>
-          <div class="call-stage"><div class="call-content" hidden></div><div class="call-grid"></div></div>
+          <div class="call-body">
+            <div class="call-stage"><div class="call-content" hidden></div><div class="call-grid"></div></div>
+            <aside class="call-chat" hidden aria-label="Meeting chat">
+              <header><b>💬 Meeting chat</b><a class="small" href="#/chat/${encodeURIComponent(call.conv || '')}" data-call="open-messages" title="Open in Messages (the call keeps going)">Open in Messages</a><button class="icon-btn" data-call="chat" aria-label="Close chat">✕</button></header>
+              <div class="call-chat-host"></div>
+            </aside>
+          </div>
           <footer class="call-controls">
             <button class="call-btn" data-call="mic"></button>
             <button class="call-btn" data-call="camera"></button>
             <button class="call-btn" data-call="flip" hidden>🔄<span>Flip</span></button>
             <button class="call-btn" data-call="share"></button>
             <button class="call-btn" data-call="record"></button>
+            <button class="call-btn" data-call="chat">💬<span>Chat</span></button>
             <button class="call-btn" data-call="invite">🔗<span>Invite</span></button>
             <button class="call-btn leave" data-call="leave">✆<span>Leave</span></button>
           </footer>
           <audio class="call-audio" autoplay></audio>
         </div>`;
       root.addEventListener('click', onCallClick);
+      mountCallChat();
     }
     root.querySelector('.call-title').textContent = call.title;
     root.querySelector('.call-status').textContent = call.status;
@@ -188,6 +199,12 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     set('record', Boolean(recorder), 'Stop recording', 'Record', '⏹', '⏺', !canRecord());
     root.querySelector('[data-call="share"]').classList.toggle('active', call.sharing);
     root.querySelector('[data-call="record"]').classList.toggle('active', Boolean(recorder));
+    const chatButton = root.querySelector('.call-controls [data-call="chat"]');
+    chatButton.classList.toggle('active', call.chatOpen);
+    chatButton.innerHTML = `💬<span>Chat</span>${call.chatUnread && !call.chatOpen ? `<b class="call-badge">${call.chatUnread}</b>` : ''}`;
+    chatButton.hidden = !call.conv;
+    root.querySelector('.call-chat').hidden = !call.chatOpen;
+    root.querySelector('.call').classList.toggle('chat-open', call.chatOpen);
     renderTiles();
   }
 
@@ -220,6 +237,35 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     root.querySelector('.call-stage').classList.toggle('with-content', Boolean(call.contentTileId));
   }
 
+  // The chat panel stays mounted (hidden) for the whole call, so new messages count up on the button.
+  function mountCallChat() {
+    if (!call?.conv || !chat) return;
+    const host = callRoot().querySelector('.call-chat-host');
+    const view = chat.viewFor(call.conv);
+    view.onNewMessage = () => {
+      if (!call || call.chatOpen) return;
+      call.chatUnread = (call.chatUnread || 0) + 1;
+      renderCall();
+    };
+    call.chatView = view;
+    view.mount(host).catch(() => {});
+  }
+
+  function toggleCallChat() {
+    call.chatOpen = !call.chatOpen;
+    if (call.chatOpen) {
+      call.chatUnread = 0;
+      // If Messages took the conversation meanwhile, bring it back into the panel.
+      const host = callRoot().querySelector('.call-chat-host');
+      if (call.chatView && call.chatView.el !== host) call.chatView.mount(host).catch(() => {});
+    }
+    renderCall();
+    if (call.chatOpen) {
+      call.chatView?.scrollToEnd();
+      if (window.matchMedia('(pointer: fine)').matches) call.chatView?.focus();
+    }
+  }
+
   async function joinCall(meetingId, withVideo) {
     if (call) {
       if (call.meetingId === meetingId) return showCall();
@@ -237,6 +283,10 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       meetingId,
       title: data.meeting.title,
       joinUrl: data.meeting.joinUrl,
+      conv: data.conv || data.meeting.conv,
+      chatOpen: false,
+      chatUnread: 0,
+      chatView: null,
       names: data.names || {},
       session,
       av,
@@ -425,8 +475,10 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
 
   function cleanupCall() {
     if (!call) return;
-    const { av } = call;
+    const { av, chatView } = call;
     call = null;
+    if (chatView?.el?.closest('#call-root')) chatView.unmount();
+    if (chatView) chatView.onNewMessage = () => {};
     try {
       av.stopLocalVideoTile();
       av.stopVideoInput();
@@ -465,6 +517,13 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     else if (action === 'share') await toggleShare();
     else if (action === 'record') await toggleRecording();
     else if (action === 'invite') await copy(call.joinUrl, 'Invite link copied. Invited people can join with it.');
+    else if (action === 'chat') toggleCallChat();
+    else if (action === 'open-messages') {
+      // The link navigates; shrink the call so Messages shows, and the call keeps going.
+      call.minimized = true;
+      call.chatOpen = false;
+      renderCall();
+    }
     else if (action === 'minimize') {
       call.minimized = !call.minimized;
       renderCall();

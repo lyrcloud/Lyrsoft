@@ -93,5 +93,7 @@ export class SESv2Client {
 }
 
 export async function getSignedUrl(_client, command) {
-  return `http://localhost:${process.env.PORT || 8787}/__dev/s3/${encodeURIComponent(command.input.Key)}`;
+  const base = `http://localhost:${process.env.PORT || 8787}`;
+  if (command instanceof PutObjectCommand) return `${base}/__dev/s3put/${encodeURIComponent(command.input.Key)}`;
+  return `${base}/__dev/s3/${encodeURIComponent(command.input.Key)}`;
 }

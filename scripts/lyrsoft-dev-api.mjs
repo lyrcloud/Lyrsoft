@@ -87,6 +87,10 @@ async function devRoute(request, url, body, response) {
   if (request.method === 'POST' && url.pathname === '/__dev/inbound') return send(200, await simulateInbound(JSON.parse(body || '{}')));
   if (request.method === 'GET' && url.pathname === '/__dev/sent') return send(200, fakeAws.sentMail);
   if (request.method === 'GET' && url.pathname === '/__dev/sms') return send(200, fakeAws.sentSms);
+  if (request.method === 'PUT' && url.pathname.startsWith('/__dev/s3put/')) {
+    fakeAws.objects.set(decodeURIComponent(url.pathname.slice('/__dev/s3put/'.length)), { body: Buffer.from(body, 'latin1'), contentType: request.headers['content-type'] });
+    return send(200, { ok: true });
+  }
   if (request.method === 'GET' && url.pathname.startsWith('/__dev/s3/')) {
     const object = fakeAws.objects.get(decodeURIComponent(url.pathname.slice('/__dev/s3/'.length)));
     return object ? send(200, object.body, object.contentType || 'application/octet-stream') : send(404, { error: 'missing' });
@@ -106,7 +110,7 @@ createServer(async (request, response) => {
   for await (const chunk of request) chunks.push(chunk);
   const url = new URL(request.url, 'http://localhost');
   if (url.pathname.startsWith('/__dev/')) {
-    return devRoute(request, url, chunks.length ? Buffer.concat(chunks).toString('utf8') : '', response).catch((error) => {
+    return devRoute(request, url, chunks.length ? Buffer.concat(chunks).toString(url.pathname.startsWith('/__dev/s3put/') ? 'latin1' : 'utf8') : '', response).catch((error) => {
       console.error(error);
       response.writeHead(500, cors).end(String(error.stack || error));
     });

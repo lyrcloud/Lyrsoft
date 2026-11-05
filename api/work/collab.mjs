@@ -9,6 +9,15 @@
 //   POST /chat/groups                           { name, members } start a group
 //   PATCH /chat/{conv}                          { name?, add? } rename a group or add people (members)
 //   POST /chat/{conv}/leave                     leave a group
+//   POST /chat/{conv}/uploads                   { name, type, size } a short-lived upload URL for a photo or file
+//   POST /chat/{conv}/typing                    "I'm typing" (shown to others for a few seconds)
+//   PATCH /chat/{conv}/messages/{id}            { at, body } edit your message
+//   DELETE /chat/{conv}/messages/{id}?at=       unsend your message (its files are deleted)
+//   POST /chat/{conv}/messages/{id}/react       { at, emoji } add or remove your reaction
+// Messages can reply to another ({ replyTo: { id, at } }) and carry files ({ attachments }). GET
+// messages?since=<serverTime> returns what's new or changed since the last poll, plus who's typing,
+// who has seen what (DMs and groups) and who's active. Every meeting has a conversation for its chat:
+// the one it was started from, or a group of the host and invitees made with the meeting.
 //   GET  /chat/{conv}/messages?after=<iso>      messages (newest 100, or those after `after`); marks read
 //   POST /chat/{conv}/messages                  { body }
 //
@@ -31,9 +40,20 @@
 //   MEETING#<id>     META                meeting
 //   MEETING#<id>     INVITE#<email>      host and invitees  GSI1: MEETUSER#<email> / <startsAt>#<id>
 import { CreateAttendeeCommand, CreateMeetingCommand, DeleteMeetingCommand, GetMeetingCommand } from '@aws-sdk/client-chime-sdk-meetings';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { safeFilename } from '../mail/model.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { meetingInviteEmail } from './account.mjs';
 import {
+  ACTIVE_MS,
+  ATTACHMENT_BYTES_MAX,
+  attachmentPrefix,
+  cleanAttachments,
+  reactionsOut,
+  replyQuote,
+  toggleReaction,
+  TYPING_MS,
   attendeeExternalId,
   canManageMeeting,
   canSeeMeeting,
@@ -54,7 +74,7 @@ import {
 
 const MEETING_ID_RE = /^[0-9a-f-]{36}$/;
 
-export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId }) {
+export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId, s3, bucket }) {
   const { get, put, queryAll } = db;
   const bad = (message) => new HttpError(400, message);
   const tryClean = (fn) => {
@@ -96,22 +116,50 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return [...people.values()].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
   }
 
-  const messageOut = (m) => ({ id: m.id, body: m.body, kind: m.kind || 'text', meetingId: m.meetingId || null, authorEmail: m.authorEmail, authorName: m.authorName || '', createdAt: m.createdAt });
+  // Photos and files are private in the mail bucket; the app gets links that work for an hour.
+  const signedUrl = (key, download) =>
+    getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key, ...(download ? { ResponseContentDisposition: `attachment; filename="${download.replace(/"/g, '')}"` } : {}) }), { expiresIn: 3600 });
 
-  async function postMessage(me, conv, meta, { body, kind = 'text', meetingId = null }) {
+  async function messageOut(m, me, nameOf = (e) => e) {
+    const deleted = Boolean(m.deletedAt);
+    return {
+      id: m.id,
+      at: m.createdAt,
+      body: deleted ? '' : m.body,
+      kind: m.kind || 'text',
+      meetingId: m.meetingId || null,
+      authorEmail: m.authorEmail,
+      authorName: m.authorName || '',
+      createdAt: m.createdAt,
+      editedAt: m.editedAt || null,
+      deleted,
+      replyTo: deleted ? null : m.replyTo || null,
+      reactions: deleted ? [] : reactionsOut(m.reactions, me.email, nameOf),
+      attachments: deleted
+        ? []
+        : await Promise.all((m.attachments || []).map(async (a) => ({ name: a.name, type: a.type, size: a.size, url: await signedUrl(a.key), download: await signedUrl(a.key, a.name) }))),
+    };
+  }
+
+  async function postMessage(me, conv, meta, { body, kind = 'text', meetingId = null, replyTo = null, attachments = [] }) {
     const createdAt = now();
     const id = newId();
-    const message = { PK: `CHAT#${conv}`, SK: `MSG#${createdAt}#${id}`, id, conv, body, kind, meetingId, authorEmail: me.email, authorName: me.name || '', createdAt };
+    const message = { PK: `CHAT#${conv}`, SK: `MSG#${createdAt}#${id}`, id, conv, body, kind, meetingId, replyTo, attachments, authorEmail: me.email, authorName: me.name || '', createdAt, updatedAt: createdAt };
     await put(message);
     // A channel's title comes from its workspace, so it isn't stored; a group keeps its own name.
     const { title, ...rest } = meta;
     const stored = meta.type === 'group' ? meta : rest;
-    await put({ ...stored, PK: `CHAT#${conv}`, SK: 'META', conv, lastMessageAt: createdAt, lastSnippet: snippetOf(kind === 'meeting' ? `📹 ${body}` : body), lastAuthor: me.email });
+    await put({ ...stored, PK: `CHAT#${conv}`, SK: 'META', conv, lastMessageAt: createdAt, lastSnippet: snippetOf(kind === 'meeting' ? `📹 ${body}` : body || (attachments.length ? `📎 ${attachments.length === 1 ? attachments[0].name : `${attachments.length} files`}` : '')), lastAuthor: me.email });
     await put({ PK: `CHATREAD#${me.email}`, SK: conv, lastReadAt: createdAt });
     return message;
   }
 
+  // Presence: when each person last had Lyrsoft open (refreshed by their chat polling).
+  const touchPresence = (me) => put({ PK: `PRESENCE#${me.email}`, SK: 'META', at: now() });
+  const lastSeen = async (email) => (await get(`PRESENCE#${email}`, 'META'))?.at || null;
+
   route('GET', '/chat', async (me) => {
+    await touchPresence(me);
     const reads = new Map((await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `CHATREAD#${me.email}` } })).map((r) => [r.SK, r.lastReadAt]));
     const out = (conv, meta, extra) => ({
       id: conv,
@@ -135,7 +183,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
           return out(row.conv, meta, { type: 'group', title: meta.title, memberCount: meta.members.length, members: meta.members });
         }
         const other = meta.members.find((e) => e !== me.email) || me.email;
-        return out(row.conv, meta, { type: 'dm', title: names.get(other) || meta.names?.[other] || other, with: other });
+        return out(row.conv, meta, { type: 'dm', title: names.get(other) || meta.names?.[other] || other, with: other, activeAt: await lastSeen(other) });
       }),
     )).filter(Boolean);
     const dms = rows.filter((c) => c.type === 'dm');
@@ -244,23 +292,103 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { left: true };
   });
 
+  const messageKey = (conv, id, at) => {
+    if (!/^[\w-]{6,40}$/.test(String(id)) || !/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(String(at))) throw bad('Which message?');
+    return [`CHAT#${conv}`, `MSG#${at}#${id}`];
+  };
+  async function openMessage(conv, id, at) {
+    const message = await get(...messageKey(conv, id, at));
+    if (!message) throw new HttpError(404, 'Message not found.');
+    return message;
+  }
+
   route('GET', '/chat/{conv}/messages', async (me, { conv }, _b, query) => {
+    const serverTime = now();
     const { meta } = await openConversation(me, conv);
-    const after = query.get('after');
-    let messages = await queryAll({ KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)', ExpressionAttributeValues: { ':pk': `CHAT#${conv}`, ':sk': 'MSG#' } });
-    if (after) messages = messages.filter((m) => m.createdAt > after);
-    messages = messages.slice(-100);
+    const since = query.get('since') || query.get('after');
+    const rows = await queryAll({ KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)', ExpressionAttributeValues: { ':pk': `CHAT#${conv}`, ':sk': 'MSG#' } });
+    // New or changed (edited, unsent, reacted to) since the last poll; else the newest 100.
+    const messages = since ? rows.filter((m) => m.createdAt > since || (m.updatedAt || '') > since) : rows.slice(-100);
     if (meta.lastMessageAt) await put({ PK: `CHATREAD#${me.email}`, SK: conv, lastReadAt: meta.lastMessageAt });
+    await touchPresence(me);
+    const nameOf = (email) => (email === me.email ? 'You' : meta.names?.[email] || email);
+    const typingRows = await queryAll({ KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)', ExpressionAttributeValues: { ':pk': `CHAT#${conv}`, ':sk': 'TYPING#' } });
+    const typing = typingRows
+      .filter((t) => t.email !== me.email && Date.now() - Date.parse(t.at) < TYPING_MS)
+      .map((t) => t.name || t.email);
+    // Seen receipts and active status for DMs and groups (not for whole-workspace channels).
+    const others = (meta.members || []).filter((e) => e !== me.email).slice(0, 30);
+    const reads = Object.fromEntries(await Promise.all(others.map(async (e) => [e, (await get(`CHATREAD#${e}`, conv))?.lastReadAt || null])));
+    const active = Object.fromEntries(await Promise.all(others.map(async (e) => [e, await lastSeen(e)])));
     return {
-      conversation: { id: conv, type: meta.type || (conv.startsWith('ws.') ? 'ws' : 'dm'), title: meta.title || null, members: meta.members || null, names: meta.names || {}, createdBy: meta.createdBy || null },
-      messages: messages.map(messageOut),
+      serverTime,
+      conversation: { id: conv, type: meta.type || (conv.startsWith('ws.') ? 'ws' : 'dm'), title: meta.title || null, members: meta.members || null, names: meta.names || {}, createdBy: meta.createdBy || null, meetingId: meta.meetingId || null },
+      messages: await Promise.all(messages.map((m) => messageOut(m, me, nameOf))),
+      typing,
+      reads,
+      active,
     };
   });
 
   route('POST', '/chat/{conv}/messages', async (me, { conv }, body) => {
     const { meta } = await openConversation(me, conv);
-    const message = await postMessage(me, conv, meta, { body: tryClean(() => cleanMessage(body.body)) });
-    return [201, { message: messageOut(message) }];
+    const attachments = tryClean(() => cleanAttachments(body.attachments, conv));
+    const text = attachments.length && !String(body.body || '').trim() ? '' : tryClean(() => cleanMessage(body.body));
+    let replyTo = null;
+    if (body.replyTo) replyTo = replyQuote(await openMessage(conv, body.replyTo.id, body.replyTo.at));
+    const message = await postMessage(me, conv, meta, { body: text, replyTo, attachments });
+    await db.del(`CHAT#${conv}`, `TYPING#${me.email}`);
+    return [201, { message: await messageOut(message, me) }];
+  });
+
+  route('PATCH', '/chat/{conv}/messages/{id}', async (me, { conv, id }, body) => {
+    await openConversation(me, conv);
+    const message = await openMessage(conv, id, body.at);
+    if (message.authorEmail !== me.email || message.kind !== 'text' || message.deletedAt) throw new HttpError(403, 'You can only edit your own messages.');
+    const text = message.attachments?.length && !String(body.body || '').trim() ? '' : tryClean(() => cleanMessage(body.body));
+    const next = { ...message, body: text, editedAt: now(), updatedAt: now() };
+    await put(next);
+    return { message: await messageOut(next, me) };
+  });
+
+  route('DELETE', '/chat/{conv}/messages/{id}', async (me, { conv, id }, _b, query) => {
+    await openConversation(me, conv);
+    const message = await openMessage(conv, id, query.get('at'));
+    if (message.authorEmail !== me.email || message.kind !== 'text') throw new HttpError(403, 'You can only unsend your own messages.');
+    for (const a of message.attachments || []) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: a.key })).catch(() => {});
+    const next = { ...message, body: '', attachments: [], reactions: {}, replyTo: null, deletedAt: now(), updatedAt: now() };
+    await put(next);
+    // If it was the latest message, the conversation list shouldn't keep previewing it.
+    const stored = await get(`CHAT#${conv}`, 'META');
+    if (stored?.lastMessageAt === message.createdAt) await put({ ...stored, lastSnippet: 'Message unsent' });
+    return { message: await messageOut(next, me) };
+  });
+
+  route('POST', '/chat/{conv}/messages/{id}/react', async (me, { conv, id }, body) => {
+    await openConversation(me, conv);
+    const message = await openMessage(conv, id, body.at);
+    if (message.deletedAt || message.kind === 'system') throw bad('You can’t react to that.');
+    const next = { ...message, reactions: tryClean(() => toggleReaction(message.reactions, body.emoji, me.email)), updatedAt: now() };
+    await put(next);
+    return { message: await messageOut(next, me) };
+  });
+
+  route('POST', '/chat/{conv}/typing', async (me, { conv }) => {
+    await openConversation(me, conv);
+    await put({ PK: `CHAT#${conv}`, SK: `TYPING#${me.email}`, email: me.email, name: me.name || '', at: now(), expiresAt: Math.floor(Date.now() / 1000) + 600 });
+    return { ok: true };
+  });
+
+  route('POST', '/chat/{conv}/uploads', async (me, { conv }, body) => {
+    await openConversation(me, conv);
+    const size = Number(body.size);
+    if (!Number.isFinite(size) || size <= 0) throw bad('That file is empty.');
+    if (size > ATTACHMENT_BYTES_MAX) throw bad('Files can be up to 25 MB.');
+    const name = safeFilename(body.name);
+    const type = /^[\w.+-]+\/[\w.+-]+$/.test(String(body.type)) ? String(body.type) : 'application/octet-stream';
+    const key = `${attachmentPrefix(conv)}${randomUUID()}/${name}`;
+    const url = await getSignedUrl(s3, new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: type }), { expiresIn: 600 });
+    return { key, url, name, type, size };
   });
 
   // ---------------------------------------------------------------- meetings
@@ -332,6 +460,40 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return rows.map((r) => r.email);
   }
 
+  // The meeting's chat: the conversation it was started from, or a group of the host and invitees.
+  async function ensureMeetingChat(meeting) {
+    if (meeting.conv) return meeting;
+    const conv = groupId(randomBytes(12).toString('hex'));
+    const members = [meeting.hostEmail, ...meeting.invitees];
+    const meta = {
+      PK: `CHAT#${conv}`,
+      SK: 'META',
+      conv,
+      type: 'group',
+      title: `📹 ${meeting.title}`.slice(0, 80),
+      members,
+      names: meeting.names || {},
+      createdBy: meeting.hostEmail,
+      meetingId: meeting.meetingId,
+      createdAt: now(),
+    };
+    await put(meta);
+    for (const email of members) await put(memberRow(conv, email));
+    const next = { ...meeting, conv };
+    await put(next);
+    return next;
+  }
+
+  // Adds people to a meeting's own group chat (not to a channel or DM it was started from).
+  async function addToMeetingChat(meeting, emails) {
+    const meta = meeting.conv && (await get(`CHAT#${meeting.conv}`, 'META'));
+    if (!meta || meta.meetingId !== meeting.meetingId) return;
+    const added = emails.filter((e) => !meta.members.includes(e));
+    if (!added.length) return;
+    await put({ ...meta, members: [...meta.members, ...added] });
+    for (const email of added) await put(memberRow(meeting.conv, email));
+  }
+
   route('POST', '/meetings', async (me, _p, body) => {
     let conversation = null;
     if (body.conv) conversation = await openConversation(me, String(body.conv));
@@ -352,6 +514,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     };
     meeting.meetingId = meeting.PK.slice('MEETING#'.length);
     await put(meeting);
+    if (!conversation) Object.assign(meeting, await ensureMeetingChat(meeting));
     for (const email of [me.email, ...clean.invitees]) await put(inviteRow(meeting, email));
     const emailed = body.notify === false ? 0 : await emailInvites(meeting, clean.invitees);
     if (conversation) {
@@ -370,6 +533,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     if (!added.length) throw bad('Everyone you entered is already invited.');
     const next = { ...meeting, invitees: [...meeting.invitees, ...added].slice(0, 50) };
     await put(next);
+    await addToMeetingChat(next, added);
     for (const email of added) await put(inviteRow(next, email));
     const emailed = body.notify === false ? 0 : await emailInvites(next, added);
     return { meeting: meetingOut(next, me), emailed };
@@ -404,8 +568,11 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
   }
 
   route('POST', '/meetings/{id}/join', async (me, { id }) => {
-    const meeting = await openMeeting(me, id);
+    let meeting = await openMeeting(me, id);
     if (meeting.cancelledAt) throw bad('This meeting was cancelled.');
+    // Meetings made before meeting chats get one now; staff joining uninvited get added to it.
+    meeting = await ensureMeetingChat(meeting);
+    await addToMeetingChat(meeting, [me.email]);
     let chimeMeeting;
     try {
       chimeMeeting = await chimeMeetingFor(meeting);
@@ -414,7 +581,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       throw new HttpError(502, 'Couldn’t start the video call. Please try again.');
     }
     const { Attendee } = await chime.send(new CreateAttendeeCommand({ MeetingId: chimeMeeting.MeetingId, ExternalUserId: attendeeExternalId(me.email) }));
-    return { meeting: meetingOut(meeting, me), chime: { meeting: chimeMeeting, attendee: Attendee }, names: { ...meeting.names, [me.email]: me.name || meeting.names?.[me.email] || '' } };
+    return { meeting: meetingOut(meeting, me), conv: meeting.conv, chime: { meeting: chimeMeeting, attendee: Attendee }, names: { ...meeting.names, [me.email]: me.name || meeting.names?.[me.email] || '' } };
   });
 }
 

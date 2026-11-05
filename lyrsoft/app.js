@@ -131,7 +131,7 @@ const withParams = (changes) => {
 const mail = createMail({ api, esc, toast, render: () => render(), go, withParams, initial, formatDateTime, getMe: () => state.me });
 const account = createAccount({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const chat = createChat({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
-const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args) });
+const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args), chat });
 const isAccountView = () => route.view === 'profile' || route.view === 'admin';
 const isCollabView = () => ['chat', 'meetings', 'meet'].includes(route.view);
 

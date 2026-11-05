@@ -82,3 +82,55 @@ export const canManageMeeting = (meeting, email, staff) => staff || meeting.host
 
 // Chime ExternalUserId: 2-64 characters; the app maps it back to a name with the meeting's people.
 export const attendeeExternalId = (email) => String(email).slice(0, 64);
+
+// ------------------------------------------------------------------ Messenger-style message features
+
+export const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+export const ATTACHMENTS_MAX = 10;
+export const ATTACHMENT_BYTES_MAX = 25 * 1024 * 1024;
+export const TYPING_MS = 6000; // "typing…" shows this long after the last keystroke ping
+export const ACTIVE_MS = 2 * 60 * 1000; // "Active now" if seen this recently
+
+// Where a conversation's uploads live in the mail bucket.
+export const attachmentPrefix = (conv) => `chat/${conv}/`;
+
+// Attachments sent with a message: files already uploaded under this conversation's prefix.
+export function cleanAttachments(list, conv) {
+  if (list === undefined || list === null) return [];
+  if (!Array.isArray(list) || list.length > ATTACHMENTS_MAX) throw new Error(`Send up to ${ATTACHMENTS_MAX} files at a time.`);
+  return list.map((a) => {
+    const key = String(a?.key || '');
+    if (!key.startsWith(attachmentPrefix(conv)) || key.includes('..') || key.length > 400) throw new Error('That file wasn’t uploaded to this conversation.');
+    const size = Number(a.size);
+    if (!Number.isFinite(size) || size <= 0 || size > ATTACHMENT_BYTES_MAX) throw new Error('Files can be up to 25 MB.');
+    return { key, name: String(a.name || 'file').slice(0, 120), type: String(a.type || 'application/octet-stream').slice(0, 100), size };
+  });
+}
+
+// Adds or removes `email`'s `emoji` reaction; returns the new { emoji: [emails] } map.
+export function toggleReaction(reactions, emoji, email) {
+  if (!REACTIONS.includes(emoji)) throw new Error('Unknown reaction.');
+  const next = Object.fromEntries(Object.entries(reactions || {}).map(([k, v]) => [k, [...v]]));
+  const list = next[emoji] || [];
+  next[emoji] = list.includes(email) ? list.filter((e) => e !== email) : [...list, email];
+  if (!next[emoji].length) delete next[emoji];
+  return next;
+}
+
+// Reactions as the app shows them: [{ emoji, count, mine, names }] in the standard order.
+export const reactionsOut = (reactions, me, nameOf = (e) => e) =>
+  REACTIONS.filter((emoji) => reactions?.[emoji]?.length).map((emoji) => ({
+    emoji,
+    count: reactions[emoji].length,
+    mine: reactions[emoji].includes(me),
+    names: reactions[emoji].map(nameOf),
+  }));
+
+// What a reply quotes: who wrote the original and the start of it.
+export const replyQuote = (m) => ({
+  id: m.id,
+  at: m.createdAt,
+  authorEmail: m.authorEmail,
+  authorName: m.authorName || '',
+  snippet: m.deletedAt ? 'Message unsent' : snippetOf(m.body) || (m.attachments?.length ? `📎 ${m.attachments.length} file${m.attachments.length === 1 ? '' : 's'}` : ''),
+});

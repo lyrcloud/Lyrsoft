@@ -13,6 +13,7 @@ Sign-in uses the Lyrcloud Cognito user pool (Google). The super admin is **lyrcl
 
 ```
 lyrsoft/            website (home.html), app (index.html, app.js, mail.js), sign-in callback
+lyrsoft/brand/      logo (SVG), favicons and web manifest, served at /brand/ (and /favicon.ico)
 src/auth.js         Cognito Hosted UI helpers (copy of Lyrcloud's src/auth.js)
 api/work/           work API Lambda: workspaces, boards, items, contact form, Lyrbot, mail routes
 api/mail/           mail model, store, routes and the SES inbound processor

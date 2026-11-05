@@ -161,7 +161,7 @@ function sidebar() {
   const ws = state.ws;
   return `
     <aside class="sidebar">
-      <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true">◆</span><span>Lyrsoft <b>Work</b></span></a>
+      <a class="brand" href="#/"><img class="brand-mark" src="/brand/lyrsoft-mark.svg" alt="" /><span>Lyrsoft <b>Work</b></span></a>
       <label class="ws-picker">
         <span class="nav-label">Workspace</span>
         <select data-change="pick-ws">
@@ -981,7 +981,7 @@ if (devLogin && WORK_API_BASE.startsWith('http://localhost')) {
 if (!getTokens()) {
   app.innerHTML = `
     <div class="welcome">
-      <span class="brand-mark big" aria-hidden="true">◆</span>
+      <img class="brand-mark big" src="/brand/lyrsoft-mark.svg" alt="" />
       <h1>Lyrsoft <b>Work</b></h1>
       <p>Plan, track and deliver work with your team and your clients: boards, owners, due dates and updates in one place.</p>
       <button class="btn primary big" data-click="sign-in">Continue with Google</button>

@@ -3,7 +3,7 @@
 // The Cognito helpers (src/auth.js) are copied alongside, and config.js carries the API URL
 // from LYRSOFT_API_BASE (set by scripts/deploy-lyrsoft.sh from the lyrsoft-work-api stack).
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const OUT = 'dist-lyrsoft';
@@ -33,5 +33,10 @@ for (const [source, target] of Object.entries(pages)) {
   for (const name of files.keys()) html = html.replaceAll(`"/app/${name}"`, `"${assetBase}${name}"`);
   await writeFile(join(OUT, target), html);
 }
+
+
+// Logo, favicons and web manifest (lyrsoft/brand/) are served from /brand/, with /favicon.ico at the root.
+await cp(join('lyrsoft', 'brand'), join(OUT, 'brand'), { recursive: true });
+await copyFile(join('lyrsoft', 'brand', 'favicon.ico'), join(OUT, 'favicon.ico'));
 
 console.log(`Built Lyrsoft into ${OUT}/ (assets at ${assetBase}, API ${apiBase})`);

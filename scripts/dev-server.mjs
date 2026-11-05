@@ -12,6 +12,9 @@ const types = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
   ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.ico', 'image/x-icon'],
+  ['.webmanifest', 'application/manifest+json'],
 ]);
 
 // Rebuild on every page request so edits to lyrsoft/ and src/ show up on refresh.

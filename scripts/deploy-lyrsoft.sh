@@ -121,6 +121,8 @@ CF_DOMAIN="$(output "$SITE_STACK" DistributionDomainName)"
 
 LYRSOFT_API_BASE="$API_BASE" node scripts/build-lyrsoft.mjs
 aws s3 sync dist-lyrsoft/assets/ "s3://$BUCKET/assets/" --cache-control "public,max-age=31536000,immutable"
+aws s3 sync dist-lyrsoft/brand/ "s3://$BUCKET/brand/" --cache-control "public,max-age=86400"
+aws s3 cp dist-lyrsoft/favicon.ico "s3://$BUCKET/favicon.ico" --cache-control "public,max-age=86400" --content-type "image/x-icon"
 aws s3 sync dist-lyrsoft/ "s3://$BUCKET/" --exclude "*" --include "*.html" \
   --cache-control "public,max-age=0,must-revalidate" --content-type "text/html; charset=utf-8"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" >/dev/null

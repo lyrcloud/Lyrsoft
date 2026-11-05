@@ -7,11 +7,14 @@
 //   MSGID#<address>#<header>  META                 Message-ID -> thread, for threading replies
 //   INBOUND#<ses id>#<addr>   META                 dedupe marker (SES can deliver an event twice)
 //
+// Conversation statuses are folders: open (Inbox), closed, spam and trash. deleteThread removes a
+// conversation for good: its messages, Message-ID links and stored files.
+//
 // Bodies over a few KB and all HTML live in the mail bucket, not DynamoDB (400 KB item limit):
 //   inbound/<ses id>   raw email (written by SES)       html/<msg>.html
 //   outbound/<msg>.eml raw email we sent                attachments/<msg>/<n>/<filename>
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { newId, snippet } from './model.mjs';
 
 const MAX_TEXT = 60_000;
@@ -116,9 +119,9 @@ export function createMailStore({ ddb, s3, table, bucket }) {
       await ddb.send(new PutCommand({ TableName: table, Item: { PK: `MSGID#${address}#${item.headerMessageId}`, SK: 'META', threadId } }));
     }
 
-    // Incoming mail reopens a closed conversation and marks it unread; our own replies don't.
+    // Incoming mail reopens a closed or deleted conversation and marks it unread; our own replies don't.
     const inbound = message.direction === 'in';
-    const status = isNew ? newThreadStatus : inbound && thread.status === 'closed' ? 'open' : thread.status;
+    const status = isNew ? newThreadStatus : inbound && ['closed', 'trash'].includes(thread.status) ? 'open' : thread.status;
     const next = {
       ...(thread || {
         PK: `MAILBOX#${address}`,
@@ -132,6 +135,7 @@ export function createMailStore({ ddb, s3, table, bucket }) {
       }),
       ...threadIndexKeys(address, status, createdAt, threadId),
       status,
+      ...(status === thread?.status ? {} : { trashedFrom: null, trashedAt: null }),
       participants: [...participants].slice(0, 50),
       lastMessageAt: createdAt,
       lastDirection: message.direction,
@@ -153,6 +157,20 @@ export function createMailStore({ ddb, s3, table, bucket }) {
     Object.assign(next, threadIndexKeys(address, next.status, next.lastMessageAt, threadId));
     await ddb.send(new PutCommand({ TableName: table, Item: next }));
     return next;
+  }
+
+  // Deletes a conversation for good: every message, its Message-ID link and stored files, then the thread.
+  async function deleteThread(address, threadId) {
+    const messages = await listMessages(threadId);
+    for (const message of messages) {
+      const keys = [message.htmlKey, message.rawKey, ...(message.attachments || []).map((a) => a.key)].filter(Boolean);
+      await Promise.all(keys.map((Key) => s3.send(new DeleteObjectCommand({ Bucket: bucket, Key })).catch((error) => console.warn('S3 delete failed', Key, error.name))));
+      if (message.headerMessageId) {
+        await ddb.send(new DeleteCommand({ TableName: table, Key: { PK: `MSGID#${address}#${message.headerMessageId}`, SK: 'META' } }));
+      }
+      await ddb.send(new DeleteCommand({ TableName: table, Key: { PK: message.PK, SK: message.SK } }));
+    }
+    await ddb.send(new DeleteCommand({ TableName: table, Key: { PK: `MAILBOX#${address}`, SK: `THREAD#${threadId}` } }));
   }
 
   async function listThreads(address, status, { limit = 50, cursor } = {}) {
@@ -221,6 +239,7 @@ export function createMailStore({ ddb, s3, table, bucket }) {
     getThread,
     saveMessage,
     updateThread,
+    deleteThread,
     listThreads,
     countThreads,
     listMessages,

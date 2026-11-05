@@ -1,8 +1,25 @@
 // Lyrsoft Mail: shared inboxes (support@lyrtrip.com and so on) inside Lyrsoft Work.
-// Routes: #/mail/<address>?status=open|closed|spam&thread=<id>, and #/mail/settings (super admin).
+// Routes: #/mail/<address>?status=open|closed|spam|trash&thread=<id>, and #/mail/settings (super admin).
+// Folders: Inbox (open), Closed, Spam and Trash. Delete moves a conversation to Trash; Delete forever
+// and Empty trash/spam remove it for good. Checkboxes select conversations for bulk actions.
 // The app shell (app.js) owns routing and rendering; this module loads mail data and renders views.
 
-const STATUS_LABELS = { open: 'Open', closed: 'Closed', spam: 'Spam' };
+const STATUS_LABELS = { open: 'Inbox', closed: 'Closed', spam: 'Spam', trash: 'Trash' };
+const FOLDER_ICONS = { open: '📥', closed: '✓', spam: '⚠', trash: '🗑' };
+const EMPTY_TEXT = {
+  open: 'All caught up. 🎉',
+  closed: 'No closed conversations.',
+  spam: 'No spam. Messages that fail spam or virus checks land here.',
+  trash: 'Trash is empty.',
+};
+// Bulk actions offered in each folder: [action, label, danger?]
+const FOLDER_ACTIONS = {
+  open: [['closed', '✓ Close'], ['read', 'Mark read'], ['unread', 'Mark unread'], ['spam', '⚠ Spam'], ['trash', '🗑 Delete', true]],
+  closed: [['open', 'Reopen'], ['spam', '⚠ Spam'], ['trash', '🗑 Delete', true]],
+  spam: [['open', 'Not spam'], ['delete', 'Delete forever', true]],
+  trash: [['restore', '↩ Restore'], ['delete', 'Delete forever', true]],
+};
+const DONE_TEXT = { closed: 'Closed', open: 'Moved to Inbox', read: 'Marked read', unread: 'Marked unread', spam: 'Moved to Spam', trash: 'Moved to Trash', restore: 'Restored', delete: 'Deleted forever' };
 const REMOTE_URL = /^\s*(https?:)?\/\//i;
 const CSS_REMOTE_URL = /url\(\s*(['"]?)\s*(https?:)?\/\/[^)]*\)/gi; // for replace()
 const HAS_CSS_REMOTE_URL = /url\(\s*(['"]?)\s*(https?:)?\/\//i; // for test(): no /g, so no lastIndex state
@@ -56,6 +73,9 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     list: null, // { key, threads, cursor }
     convo: null, // { key, thread, messages }
     showImages: new Set(),
+    selected: new Set(), // thread ids ticked in the list
+    query: '', // search within the loaded folder
+    busy: false,
   };
 
   const box = (address) => mail.boxes?.mailboxes.find((m) => m.address === address);
@@ -88,6 +108,8 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     const status = STATUS_LABELS[route.params.get('status')] ? route.params.get('status') : 'open';
     const key = `${route.mailbox}|${status}`;
     if (mail.list?.key !== key) {
+      if (mail.list?.key?.split('|')[0] !== route.mailbox || !mail.list) mail.query = '';
+      mail.selected.clear();
       mail.list = { key, threads: null, cursor: null };
       render();
       const data = await api('GET', `${boxPath(route.mailbox, '/threads')}?status=${status}`);
@@ -135,7 +157,10 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
   function threadRow(t, route) {
     const who = t.lastDirection === 'out' ? `To: ${esc(t.participants[0] || '')}` : esc(t.lastFrom?.name || t.lastFrom?.address || '');
     const href = `#/mail/${encodeURIComponent(route.mailbox)}?${new URLSearchParams({ ...(route.params.get('status') ? { status: route.params.get('status') } : {}), thread: t.id })}`;
+    const ticked = mail.selected.has(t.id);
     return `
+      <div class="thread-item${ticked ? ' selected' : ''}">
+      <label class="thread-check" title="Select"><input type="checkbox" data-change="mail-select" data-id="${esc(t.id)}"${ticked ? ' checked' : ''} aria-label="Select ${esc(t.subject)}" /></label>
       <a class="thread-row${t.unread ? ' unread' : ''}" href="${href}"${route.params.get('thread') === t.id ? ' aria-current="true"' : ''}>
         <span class="thread-top"><b>${who}</b><time>${shortDate(t.lastMessageAt)}</time></span>
         <span class="thread-subject">${esc(t.subject)}${t.messageCount > 1 ? ` <span class="muted">(${t.messageCount})</span>` : ''}</span>
@@ -143,8 +168,10 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         <span class="thread-tags">
           ${t.attachmentCount ? '<span title="Has attachments">📎</span>' : ''}
           ${t.assignee ? `<span class="avatar small" title="Assigned to ${esc(t.assignee)}">${initial(t.assignee)}</span>` : ''}
+          ${t.trashedAt ? `<span class="muted small">Deleted ${shortDate(t.trashedAt)}</span>` : ''}
         </span>
-      </a>`;
+      </a>
+      </div>`;
   }
 
   function messageFrame(message, allowImages, content) {
@@ -210,11 +237,22 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         <a class="btn ghost small back-to-list" href="${withParams({ thread: null })}">← Back</a>
         <h2>${esc(thread.subject)}</h2>
         <div class="convo-actions">
-          ${thread.status === 'open' ? '<button class="btn small" data-click="mail-status" data-status="closed">✓ Close</button>' : '<button class="btn small" data-click="mail-status" data-status="open">Reopen</button>'}
-          ${thread.status === 'spam' ? '' : '<button class="btn small" data-click="mail-status" data-status="spam">Spam</button>'}
-          ${thread.assignee === me.email ? '<button class="btn small" data-click="mail-assign" data-assignee="">Unassign</button>' : '<button class="btn small" data-click="mail-assign" data-assignee="me">Assign to me</button>'}
-          <button class="btn small ghost" data-click="mail-unread">Mark unread</button>
+          ${
+            thread.status === 'trash'
+              ? `<button class="btn small" data-click="mail-status" data-status="restore">↩ Restore</button>
+                 <button class="btn small danger" data-click="mail-delete-forever">Delete forever</button>`
+              : thread.status === 'spam'
+                ? `<button class="btn small" data-click="mail-status" data-status="open">Not spam</button>
+                   <button class="btn small danger" data-click="mail-delete-forever">Delete forever</button>`
+                : `${thread.status === 'open' ? '<button class="btn small" data-click="mail-status" data-status="closed">✓ Close</button>' : '<button class="btn small" data-click="mail-status" data-status="open">Reopen</button>'}
+                   ${thread.assignee === me.email ? '<button class="btn small" data-click="mail-assign" data-assignee="">Unassign</button>' : '<button class="btn small" data-click="mail-assign" data-assignee="me">Assign to me</button>'}
+                   <button class="btn small ghost" data-click="mail-unread">Mark unread</button>
+                   <button class="btn small ghost" data-click="mail-status" data-status="spam">⚠ Spam</button>
+                   <button class="btn small danger" data-click="mail-status" data-status="trash">🗑 Delete</button>`
+          }
         </div>
+        ${thread.status === 'trash' ? '<p class="muted small">This conversation is in Trash. Restore it, or delete it forever.</p>' : ''}
+        ${thread.status === 'spam' ? '<p class="muted small">Marked as spam. Links and images are blocked; don’t reply unless you know the sender.</p>' : ''}
         ${thread.assignee ? `<p class="muted small">Assigned to ${esc(thread.assignee)}</p>` : ''}
       </div>
       <div class="messages">${messages.map(messageCard).join('')}</div>
@@ -229,10 +267,47 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
       </form>`;
   }
 
+  const matches = (t) => {
+    const q = mail.query.trim().toLowerCase();
+    return !q || [t.subject, t.snippet, t.lastFrom?.name, t.lastFrom?.address, ...(t.participants || [])].some((v) => String(v || '').toLowerCase().includes(q));
+  };
+
+  function folderNav(current, status) {
+    const counts = { open: current.openCount, spam: current.spamCount, trash: current.trashCount };
+    return `
+      <nav class="mail-folders" aria-label="Folders">
+        ${Object.entries(STATUS_LABELS)
+          .map(
+            ([key, label]) => `<a href="${withParams({ status: key === 'open' ? null : key, thread: null })}"${key === status ? ' aria-current="page"' : ''}>
+              <span class="folder-icon" aria-hidden="true">${FOLDER_ICONS[key]}</span><span>${label}</span>${counts[key] ? `<span class="folder-count${key === 'open' ? ' strong' : ''}">${counts[key]}</span>` : ''}</a>`,
+          )
+          .join('')}
+      </nav>`;
+  }
+
+  function listToolbar(status, shown) {
+    const ticked = shown.filter((t) => mail.selected.has(t.id)).length;
+    const all = shown.length > 0 && ticked === shown.length;
+    return `
+      <div class="mail-toolbar">
+        <div class="row">
+          <label class="thread-check" title="Select all"><input type="checkbox" data-change="mail-select-all"${all ? ' checked' : ''}${shown.length ? '' : ' disabled'} aria-label="Select all" /></label>
+          ${
+            ticked
+              ? `<span class="muted small">${ticked} selected</span>
+                 ${FOLDER_ACTIONS[status].map(([action, label, danger]) => `<button class="btn small${danger ? ' danger' : ''}" data-click="mail-bulk" data-action="${action}"${mail.busy ? ' disabled' : ''}>${label}</button>`).join('')}`
+              : `<input type="search" class="search mail-search" placeholder="Search ${STATUS_LABELS[status].toLowerCase()}" value="${esc(mail.query)}" data-input="mail-search" aria-label="Search conversations" />
+                 ${['spam', 'trash'].includes(status) && shown.length ? `<button class="btn small danger" data-click="mail-empty" data-folder="${status}"${mail.busy ? ' disabled' : ''}>Empty ${STATUS_LABELS[status].toLowerCase()}</button>` : ''}`
+          }
+        </div>
+      </div>`;
+  }
+
   function inbox(route) {
     const current = box(route.mailbox);
     const status = STATUS_LABELS[route.params.get('status')] ? route.params.get('status') : 'open';
     const list = mail.list?.threads;
+    const shown = list ? list.filter(matches) : [];
     const showingThread = Boolean(route.params.get('thread'));
     return `
       <div class="page-head">
@@ -240,22 +315,20 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         <div class="page-actions"><button class="btn primary" data-click="mail-compose">✎ New email</button></div>
       </div>
       <div class="mail-layout${showingThread ? ' has-thread' : ''}">
-        <section class="thread-list" aria-label="Conversations">
-          <div class="segmented tabs" role="group" aria-label="Folder">
-            ${Object.entries(STATUS_LABELS)
-              .map(([key, label]) => `<a href="${withParams({ status: key === 'open' ? null : key, thread: null })}"${key === status ? ' aria-current="page"' : ''}>${label}${key === 'open' && current.openCount ? ` ${current.openCount}` : ''}</a>`)
-              .join('')}
-          </div>
+        ${folderNav(current, status)}
+        <section class="thread-list" aria-label="${STATUS_LABELS[status]}">
+          ${listToolbar(status, shown)}
+          ${status === 'trash' && shown.length ? '<p class="folder-note">Deleted conversations stay here until you restore them or empty the trash.</p>' : ''}
           ${
             list === null || list === undefined
               ? '<p class="loading">Loading…</p>'
-              : list.length
-                ? `${list.map((t) => threadRow(t, route)).join('')}${mail.list.cursor ? '<button class="btn ghost load-more" data-click="mail-more">Load more</button>' : ''}`
-                : `<p class="empty-list">${status === 'open' ? 'All caught up. 🎉' : `No ${STATUS_LABELS[status].toLowerCase()} conversations.`}</p>`
+              : shown.length
+                ? `${shown.map((t) => threadRow(t, route)).join('')}${mail.list.cursor ? '<button class="btn ghost load-more" data-click="mail-more">Load more</button>' : ''}`
+                : `<p class="empty-list">${mail.query && list.length ? 'No conversations match your search.' : EMPTY_TEXT[status]}</p>`
           }
         </section>
         <section class="conversation" aria-label="Conversation">
-          ${showingThread ? conversation(route) : '<p class="empty-list">Select a conversation.</p>'}
+          ${showingThread ? conversation(route) : `<div class="empty-list convo-empty"><span aria-hidden="true">${FOLDER_ICONS[status]}</span><p>Select a conversation to read it.</p></div>`}
         </section>
       </div>`;
   }
@@ -365,7 +438,67 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
       mail.showImages.add(target.dataset.id);
       render();
     },
-    'mail-status': (target) => patchThread({ status: target.dataset.status }, { closed: 'Conversation closed', open: 'Conversation reopened', spam: 'Moved to spam' }[target.dataset.status]),
+    'mail-status': (target) =>
+      patchThread({ status: target.dataset.status }, { closed: 'Conversation closed', open: 'Moved to Inbox', spam: 'Moved to Spam', trash: 'Moved to Trash', restore: 'Conversation restored' }[target.dataset.status]),
+    'mail-delete-forever': async () => {
+      if (!confirm('Delete this conversation forever? Its messages and attachments can’t be recovered.')) return;
+      try {
+        await api('DELETE', threadPath());
+        mail.convo = null;
+        await refreshList(currentRoute.value);
+        go(withParams({ thread: null }));
+        toast('Deleted forever');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'mail-bulk': async (target) => {
+      const route = currentRoute.value;
+      const { action } = target.dataset;
+      const ids = [...mail.selected];
+      if (!ids.length) return;
+      if (action === 'delete' && !confirm(`Delete ${ids.length} conversation${ids.length === 1 ? '' : 's'} forever? This can’t be undone.`)) return;
+      mail.busy = true;
+      render();
+      try {
+        const { done } = await api('POST', boxPath(route.mailbox, '/threads/bulk'), { ids, action });
+        if (route.params.get('thread') && ids.includes(route.params.get('thread')) && !['read', 'unread'].includes(action)) mail.convo = null;
+        mail.busy = false;
+        await refreshList(route);
+        if (!mail.convo && route.params.get('thread')) go(withParams({ thread: null }));
+        else render();
+        toast(`${DONE_TEXT[action]}: ${done} conversation${done === 1 ? '' : 's'}`);
+      } catch (error) {
+        mail.busy = false;
+        render();
+        toast(error.message);
+      }
+    },
+    'mail-empty': async (target) => {
+      const route = currentRoute.value;
+      const folder = target.dataset.folder;
+      if (!confirm(`Delete everything in ${STATUS_LABELS[folder]} forever? This can’t be undone.`)) return;
+      mail.busy = true;
+      render();
+      try {
+        // Big folders are emptied in batches; keep going until nothing is left.
+        let total = 0;
+        let result;
+        do {
+          result = await api('POST', boxPath(route.mailbox, '/empty'), { folder });
+          total += result.deleted;
+        } while (result.remaining > 0 && result.deleted > 0);
+        mail.convo = null;
+        mail.busy = false;
+        await refreshList(route);
+        go(withParams({ thread: null }));
+        toast(`${STATUS_LABELS[folder]} emptied: ${total} conversation${total === 1 ? '' : 's'} deleted`);
+      } catch (error) {
+        mail.busy = false;
+        render();
+        toast(error.message);
+      }
+    },
     'mail-assign': (target) => patchThread({ assignee: target.dataset.assignee === 'me' ? getMe().email : null }, target.dataset.assignee ? 'Assigned to you' : 'Unassigned'),
     'mail-unread': async () => {
       await patchThread({ unread: true });
@@ -438,6 +571,30 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     },
   };
 
+  const changeActions = {
+    'mail-select': (target) => {
+      if (target.checked) mail.selected.add(target.dataset.id);
+      else mail.selected.delete(target.dataset.id);
+      render();
+    },
+    'mail-select-all': (target) => {
+      const shown = (mail.list?.threads || []).filter(matches);
+      for (const t of shown) target.checked ? mail.selected.add(t.id) : mail.selected.delete(t.id);
+      render();
+    },
+  };
+
+  const inputActions = {
+    'mail-search': (target) => {
+      mail.query = target.value;
+      const { selectionStart } = target;
+      render();
+      const search = document.querySelector('[data-input="mail-search"]');
+      search?.focus();
+      search?.setSelectionRange(selectionStart, selectionStart);
+    },
+  };
+
   const formActions = {
     'mail-reply': async (form, data) => {
       const button = form.querySelector('[type="submit"]');
@@ -496,6 +653,8 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     sidebarLinks,
     afterRender,
     clickActions,
+    changeActions,
+    inputActions,
     formActions,
   };
 }

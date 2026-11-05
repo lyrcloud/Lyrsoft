@@ -12,6 +12,7 @@ class Command {
 }
 export class PutObjectCommand extends Command {}
 export class GetObjectCommand extends Command {}
+export class DeleteObjectCommand extends Command {}
 export class GetAccountCommand extends Command {}
 export class GetEmailIdentityCommand extends Command {}
 export class SendEmailCommand extends Command {}
@@ -38,6 +39,10 @@ export class S3Client {
     const { Key, Body, ContentType } = command.input;
     if (command instanceof PutObjectCommand) {
       objects.set(Key, { body: Buffer.from(Body), contentType: ContentType });
+      return {};
+    }
+    if (command instanceof DeleteObjectCommand) {
+      objects.delete(Key);
       return {};
     }
     if (command instanceof GetObjectCommand) {

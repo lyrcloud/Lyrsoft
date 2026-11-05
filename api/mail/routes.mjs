@@ -6,7 +6,10 @@
 //   GET    /mail/mailboxes/{address}/threads?status=&cursor= conversation list
 //   POST   /mail/mailboxes/{address}/send                    start a new conversation
 //   GET    /mail/mailboxes/{address}/threads/{thread}        conversation with messages (marks it read)
-//   PATCH  /mail/mailboxes/{address}/threads/{thread}        status, assignee, unread
+//   PATCH  /mail/mailboxes/{address}/threads/{thread}        status (open|closed|spam|trash|restore), assignee, unread
+//   DELETE /mail/mailboxes/{address}/threads/{thread}        delete for good (only from Spam or Trash)
+//   POST   /mail/mailboxes/{address}/threads/bulk            { ids, action } act on up to 100 conversations
+//   POST   /mail/mailboxes/{address}/empty                   { folder: trash|spam } delete the folder for good
 //   POST   /mail/mailboxes/{address}/threads/{thread}/reply  reply
 //   GET    .../threads/{thread}/messages/{msg}/attachments/{n}  short-lived download link
 import { GetObjectCommand } from '@aws-sdk/client-s3';
@@ -23,7 +26,10 @@ import {
   newId,
   quoteReply,
   replySubject,
+  PURGEABLE_STATUSES,
+  BULK_ACTIONS,
   THREAD_STATUSES,
+  threadActionChanges,
 } from './model.mjs';
 
 export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError }) {
@@ -63,6 +69,7 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
     id: t.threadId,
     subject: t.subject,
     status: t.status,
+    trashedAt: t.trashedAt || null,
     assignee: t.assignee || null,
     unread: Boolean(t.unread),
     participants: t.participants || [],
@@ -160,7 +167,10 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
   route('GET', '/mail/mailboxes', async (me) => {
     const mailboxes = (await store.listMailboxes()).filter((m) => canUseMailbox(me, m));
     const out = await Promise.all(
-      mailboxes.map(async (m) => mailboxOut(m, me, { openCount: await store.countThreads(m.address, 'open') })),
+      mailboxes.map(async (m) => {
+        const [openCount, spamCount, trashCount] = await Promise.all(['open', 'spam', 'trash'].map((status) => store.countThreads(m.address, status)));
+        return mailboxOut(m, me, { openCount, spamCount, trashCount });
+      }),
     );
     out.sort((a, b) => a.address.localeCompare(b.address));
     return {
@@ -252,8 +262,9 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
     const { mailbox } = await openThread(me, address, threadId);
     const changes = {};
     if ('status' in body) {
-      if (!THREAD_STATUSES.includes(body.status)) throw bad('Unknown status.');
-      changes.status = body.status;
+      if (![...THREAD_STATUSES, 'restore'].includes(body.status)) throw bad('Unknown status.');
+      const thread = await store.getThread(mailbox.address, threadId);
+      Object.assign(changes, threadActionChanges(thread, body.status) || {});
     }
     if ('assignee' in body) {
       changes.assignee = body.assignee ? clean(() => cleanEmailList([body.assignee], { label: 'assignee' })[0]) : null;
@@ -261,6 +272,54 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
     if ('unread' in body) changes.unread = Boolean(body.unread);
     const thread = await store.updateThread(mailbox.address, threadId, changes);
     return { thread: threadOut(thread) };
+  });
+
+  route('DELETE', '/mail/mailboxes/{address}/threads/{thread}', async (me, { address, thread: threadId }) => {
+    const { mailbox, thread } = await openThread(me, address, threadId);
+    if (!PURGEABLE_STATUSES.includes(thread.status)) throw bad('Move the conversation to Trash first.');
+    await store.deleteThread(mailbox.address, threadId);
+    return { deleted: true };
+  });
+
+  route('POST', '/mail/mailboxes/{address}/threads/bulk', async (me, { address }, body) => {
+    const mailbox = await openMailbox(me, address);
+    if (!BULK_ACTIONS.includes(body.action)) throw bad('Unknown action.');
+    const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))].slice(0, 100) : [];
+    if (!ids.length) throw bad('Select at least one conversation.');
+    let done = 0;
+    for (const threadId of ids) {
+      const thread = await store.getThread(mailbox.address, threadId);
+      if (!thread) continue;
+      if (body.action === 'delete') {
+        if (!PURGEABLE_STATUSES.includes(thread.status)) continue;
+        await store.deleteThread(mailbox.address, threadId);
+      } else {
+        const changes = threadActionChanges(thread, body.action);
+        if (!changes) continue;
+        await store.updateThread(mailbox.address, threadId, changes);
+      }
+      done += 1;
+    }
+    return { done };
+  });
+
+  // Deletes everything in Trash (or Spam) for good, for up to ~20 seconds per call (API Gateway gives
+  // up at 30); the app calls again while `remaining` is above zero.
+  route('POST', '/mail/mailboxes/{address}/empty', async (me, { address }, body) => {
+    const mailbox = await openMailbox(me, address);
+    const folder = body.folder === 'spam' ? 'spam' : 'trash';
+    const deadline = Date.now() + 20_000;
+    let deleted = 0;
+    let threads;
+    do {
+      ({ threads } = await store.listThreads(mailbox.address, folder, { limit: 25 }));
+      for (const thread of threads) {
+        if (Date.now() > deadline) break;
+        await store.deleteThread(mailbox.address, thread.threadId);
+        deleted += 1;
+      }
+    } while (threads.length && Date.now() < deadline);
+    return { deleted, remaining: await store.countThreads(mailbox.address, folder) };
   });
 
   route('POST', '/mail/mailboxes/{address}/threads/{thread}/reply', async (me, { address, thread: threadId }, body) => {

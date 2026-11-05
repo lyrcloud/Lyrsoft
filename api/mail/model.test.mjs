@@ -105,3 +105,16 @@ test('attachment names are made safe for storage keys', () => {
   assert.equal(safeFilename('Invoice #12 (final).pdf'), 'Invoice _12 (final).pdf');
   assert.equal(safeFilename(''), 'attachment');
 });
+
+test('folders: trash remembers where a conversation came from, and restore puts it back', async () => {
+  const { threadActionChanges } = await import('./model.mjs');
+  const at = '2026-11-05T00:00:00.000Z';
+  assert.deepEqual(threadActionChanges({ status: 'closed' }, 'trash', at), { status: 'trash', trashedFrom: 'closed', trashedAt: at, unread: false });
+  assert.deepEqual(threadActionChanges({ status: 'trash', trashedFrom: 'closed' }, 'restore'), { status: 'closed', trashedFrom: null, trashedAt: null });
+  assert.equal(threadActionChanges({ status: 'trash' }, 'restore').status, 'open');
+  assert.equal(threadActionChanges({ status: 'open' }, 'restore'), null);
+  assert.equal(threadActionChanges({ status: 'trash' }, 'trash'), null);
+  assert.equal(threadActionChanges({ status: 'spam' }, 'open').status, 'open');
+  assert.deepEqual(threadActionChanges({ status: 'open' }, 'read'), { unread: false });
+  assert.equal(threadActionChanges({ status: 'open' }, 'delete'), null);
+});

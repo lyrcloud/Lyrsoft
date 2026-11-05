@@ -1152,7 +1152,7 @@ a.ws-card:hover {
 
 .mail-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  grid-template-columns: 190px minmax(300px, 400px) minmax(0, 1fr);
   min-height: calc(100vh - 190px);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1995,4 +1995,158 @@ a.pill-staff:hover {
   width: 112px;
   height: 112px;
   font-size: 2.6rem;
+}
+
+/* ------------------------------------------------------------ mail folders, toolbar and selection (mail.js) */
+
+.mail-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.mail-folders a {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mail-folders a:hover {
+  background: var(--hover);
+}
+
+.mail-folders a[aria-current='page'] {
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+}
+
+.folder-icon {
+  width: 20px;
+  text-align: center;
+}
+
+.folder-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.folder-count.strong {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--on-color);
+  font-weight: 700;
+}
+
+.mail-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.mail-toolbar .row {
+  flex-wrap: wrap;
+  min-height: 32px;
+}
+
+.mail-search {
+  flex: 1;
+  min-width: 120px;
+}
+
+.folder-note {
+  margin: 0;
+  padding: 8px 14px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.thread-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+}
+
+.thread-item .thread-row {
+  border-top: 0;
+  padding-left: 4px;
+}
+
+.thread-item.selected {
+  background: var(--brand-tint);
+}
+
+.thread-check {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.thread-check input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.convo-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.convo-empty span {
+  font-size: 2.6rem;
+  opacity: 0.5;
+}
+
+@media (max-width: 1100px) and (min-width: 861px) {
+  .mail-layout {
+    grid-template-columns: 64px minmax(260px, 340px) minmax(0, 1fr);
+  }
+
+  .mail-folders a {
+    justify-content: center;
+    padding: 10px 0;
+  }
+
+  .mail-folders a > span:not(.folder-icon) {
+    display: none;
+  }
+}
+
+/* Phones: folders become a row of chips above the list. */
+@media (max-width: 860px) {
+  .mail-folders {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mail-folders a {
+    flex: none;
+    padding: 7px 12px;
+  }
+
+  .mail-layout.has-thread .mail-folders {
+    display: none;
+  }
 }

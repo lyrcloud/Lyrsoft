@@ -917,7 +917,8 @@ const formActions = {
 };
 
 Object.assign(clickActions, mail.clickActions, account.clickActions);
-Object.assign(changeActions, account.changeActions);
+Object.assign(changeActions, account.changeActions, mail.changeActions);
+const inputActions = { ...account.inputActions, ...mail.inputActions };
 Object.assign(formActions, mail.formActions, account.formActions);
 
 app.addEventListener('click', (event) => {
@@ -929,7 +930,7 @@ app.addEventListener('change', (event) => {
   if (target) changeActions[target.dataset.change]?.(target);
 });
 app.addEventListener('input', (event) => {
-  if (account.inputActions[event.target.dataset.input]) return account.inputActions[event.target.dataset.input](event.target);
+  if (inputActions[event.target.dataset.input]) return inputActions[event.target.dataset.input](event.target);
   if (event.target.dataset.input !== 'filter') return;
   state.filter = event.target.value;
   const { selectionStart } = event.target;

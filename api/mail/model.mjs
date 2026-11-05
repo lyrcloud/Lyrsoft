@@ -6,7 +6,23 @@ export const newId = () => randomBytes(9).toString('base64url');
 const EMAIL_RE = /^[^\s@<>",;]{1,64}@[^\s@<>",;]{1,190}\.[^\s@<>",;]{2,63}$/;
 const LOCAL_PART_RE = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/;
 
-export const THREAD_STATUSES = ['open', 'closed', 'spam'];
+// Folders: open (Inbox), closed, spam, and trash, where deleted conversations wait until someone
+// restores them or empties the trash.
+export const THREAD_STATUSES = ['open', 'closed', 'spam', 'trash'];
+// Folders whose conversations can be deleted for good.
+export const PURGEABLE_STATUSES = ['spam', 'trash'];
+export const BULK_ACTIONS = ['open', 'closed', 'spam', 'trash', 'restore', 'read', 'unread', 'delete'];
+
+// The changes `action` makes to `thread`, or null when it can't apply (e.g. "delete" outside Spam and
+// Trash). "trash" remembers where the conversation was, so "restore" can put it back.
+export function threadActionChanges(thread, action, now = new Date().toISOString()) {
+  if (action === 'read') return { unread: false };
+  if (action === 'unread') return { unread: true };
+  if (action === 'restore') return thread.status === 'trash' ? { status: thread.trashedFrom || 'open', trashedFrom: null, trashedAt: null } : null;
+  if (action === 'trash') return thread.status === 'trash' ? null : { status: 'trash', trashedFrom: thread.status, trashedAt: now, unread: false };
+  if (['open', 'closed', 'spam'].includes(action)) return { status: action, trashedFrom: null, trashedAt: null };
+  return null;
+}
 
 // ------------------------------------------------------------------ mailboxes and access
 

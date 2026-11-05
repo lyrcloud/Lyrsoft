@@ -133,8 +133,9 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # DeleteObject: emptying Trash and Spam removes the stored mail files too.
               - Effect: Allow
-                Action: [s3:GetObject, s3:PutObject]
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
                 Resource: !Sub '${MailBucket.Arn}/*'
               # configuration-set/*: SES also checks the identity's default configuration set
               # (my-first-configuration-set), so without it every send was refused.

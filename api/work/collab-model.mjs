@@ -12,7 +12,17 @@ const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 export const channelId = (wsId) => `ws.${wsId}`;
 export const dmId = (a, b) =>
   `dm.${createHash('sha256').update([String(a).toLowerCase(), String(b).toLowerCase()].sort().join('\n')).digest('hex').slice(0, 24)}`;
-export const CONV_RE = /^(ws\.[\w-]{1,40}|dm\.[0-9a-f]{24})$/;
+// A group chat someone created: "grp.<random>".
+export const groupId = (randomHex) => `grp.${String(randomHex).slice(0, 24)}`;
+export const CONV_RE = /^(ws\.[\w-]{1,40}|dm\.[0-9a-f]{24}|grp\.[0-9a-f]{24})$/;
+export const GROUP_NAME_MAX = 80;
+export const GROUP_MEMBERS_MAX = 100;
+
+export function cleanGroupName(value) {
+  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  if (!name || name.length > GROUP_NAME_MAX) throw new Error(`Give the group a name (up to ${GROUP_NAME_MAX} characters).`);
+  return name;
+}
 
 export function cleanMessage(body) {
   const text = typeof body === 'string' ? body.replace(/\r\n/g, '\n').trim() : '';

@@ -1,6 +1,6 @@
 // Lyrsoft Work messages (#/chat, #/chat/<conversation>), plugged into app.js like mail.js.
-// Each workspace has a team channel, and people who share a workspace can message each other
-// directly. The open conversation polls for new messages every 4 seconds, and the sidebar badge
+// Conversations are groups (any people you work with, with a name), direct messages with one person,
+// and each workspace's team channel. The open conversation polls for new messages every 4 seconds, and the sidebar badge
 // checks for unread conversations every 30 seconds. Polling updates the page in place, so it never
 // disturbs a message being typed.
 const POLL_OPEN_MS = 4000;
@@ -18,7 +18,7 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
   let openTimer = null;
   let badgeTimer = null;
 
-  const allConversations = () => [...(chat.list?.channels || []), ...(chat.list?.dms || [])];
+  const allConversations = () => [...(chat.list?.groups || []), ...(chat.list?.dms || []), ...(chat.list?.channels || [])];
   const findConversation = (id) => allConversations().find((c) => c.id === id);
   const timeOf = (iso) => {
     const date = new Date(iso);
@@ -79,7 +79,7 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
           patchMessages();
         }
         const list = await api('GET', '/chat');
-        const changed = JSON.stringify(list.channels.concat(list.dms).map((c) => [c.id, c.lastMessageAt, c.unread])) !== JSON.stringify(allConversations().map((c) => [c.id, c.lastMessageAt, c.unread]));
+        const changed = JSON.stringify([...list.groups, ...list.dms, ...list.channels].map((c) => [c.id, c.lastMessageAt, c.unread, c.title])) !== JSON.stringify(allConversations().map((c) => [c.id, c.lastMessageAt, c.unread, c.title]));
         chat.list = list;
         chat.unreadCount = list.unreadCount;
         if (changed) patchList();
@@ -137,20 +137,23 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
       </nav>`;
   }
 
+  const iconOf = (c) => (c?.type === 'ws' ? '#' : c?.type === 'group' ? '👥' : initial(c?.title));
   const convLink = (c) => `
     <a class="chat-conv${c.unread ? ' unread' : ''}" href="#/chat/${encodeURIComponent(c.id)}"${chat.open?.id === c.id || route?.conv === c.id ? ' aria-current="page"' : ''}>
-      <span class="chat-conv-icon" aria-hidden="true">${c.type === 'ws' ? '#' : initial(c.title)}</span>
-      <span class="chat-conv-text"><b>${esc(c.title)}</b><small>${esc(c.lastSnippet || (c.type === 'ws' ? 'Team channel' : 'Say hello 👋'))}</small></span>
+      <span class="chat-conv-icon${c.type === 'group' ? ' group' : ''}" aria-hidden="true">${iconOf(c)}</span>
+      <span class="chat-conv-text"><b>${esc(c.title)}</b><small>${esc(c.lastSnippet || (c.type === 'ws' ? 'Team channel' : c.type === 'group' ? `${c.memberCount} people` : 'Say hello 👋'))}</small></span>
       ${c.lastMessageAt ? `<time>${timeOf(c.lastMessageAt)}</time>` : ''}
     </a>`;
 
   function listItemsHtml() {
-    const { channels = [], dms = [] } = chat.list || {};
+    const { channels = [], groups = [], dms = [] } = chat.list || {};
     return `
-      <p class="chat-section">Team channels</p>
-      ${channels.map(convLink).join('') || '<p class="muted small chat-none">Join a workspace to get its channel.</p>'}
+      <p class="chat-section">Groups</p>
+      ${groups.map(convLink).join('') || '<p class="muted small chat-none">No groups yet. Start one with 👥 New group.</p>'}
       <p class="chat-section">Direct messages</p>
-      ${dms.map(convLink).join('') || '<p class="muted small chat-none">No direct messages yet.</p>'}`;
+      ${dms.map(convLink).join('') || '<p class="muted small chat-none">No direct messages yet.</p>'}
+      <p class="chat-section">Team channels</p>
+      ${channels.map(convLink).join('') || '<p class="muted small chat-none">Join a workspace to get its channel.</p>'}`;
   }
 
   function messagesHtml() {
@@ -163,6 +166,7 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
         const day = new Date(m.createdAt).toDateString();
         const divider = day !== lastDay ? `<p class="chat-day">${new Date(m.createdAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</p>` : '';
         lastDay = day;
+        if (m.kind === 'system') return `${divider}<p class="chat-system">${esc(m.body)}</p>`;
         const mine = m.authorEmail === me.email;
         const body =
           m.kind === 'meeting'
@@ -181,6 +185,70 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
       .join('');
   }
 
+  function subtitle(current, conversation) {
+    if (current?.type === 'ws') return 'Everyone in this workspace';
+    if (current?.type === 'group') {
+      const names = (conversation.members || []).map((e) => (e === getMe().email ? 'You' : conversation.names?.[e] || e));
+      return esc(`${names.length} people: ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` +${names.length - 6}` : ''}`);
+    }
+    return esc(current?.with || '');
+  }
+
+  // A people picker: one person (a direct message) or several plus a name (a group).
+  // Resolves to { emails, name } or null.
+  function pickPeople({ title, multiple, askName = false, nameValue = '', submitLabel, exclude = [] }) {
+    const people = (chat.list?.contacts || []).filter((c) => !exclude.includes(c.email));
+    return new Promise((resolve) => {
+      const node = document.createElement('dialog');
+      node.className = 'dialog wide people-dialog';
+      node.innerHTML = `
+        <form method="dialog">
+          <h2>${esc(title)}</h2>
+          ${askName ? `<label>Group name<input name="name" required maxlength="80" value="${esc(nameValue)}" placeholder="e.g. Design team" /></label>` : ''}
+          ${
+            people.length
+              ? `<input type="search" class="people-search" placeholder="Search people" aria-label="Search people" />
+                 <div class="people-list">${people
+                   .map(
+                     (c) => `<label class="person-option" data-search="${esc(`${c.name} ${c.email}`.toLowerCase())}">
+                       <input type="${multiple ? 'checkbox' : 'radio'}" name="email" value="${esc(c.email)}" />
+                       <span class="avatar small">${initial(c.name || c.email)}</span>
+                       <span><b>${esc(c.name || c.email)}</b><small>${esc(c.email)}</small></span>
+                     </label>`,
+                   )
+                   .join('')}</div>`
+              : '<p class="muted">Everyone you work with is already here.</p>'
+          }
+          <p class="people-error auth-error" hidden></p>
+          <div class="row end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok"${people.length ? '' : ' disabled'}>${esc(submitLabel)}</button></div>
+        </form>`;
+      document.body.append(node);
+      const form = node.querySelector('form');
+      node.querySelector('.people-search')?.addEventListener('input', (event) => {
+        const q = event.target.value.trim().toLowerCase();
+        for (const option of node.querySelectorAll('.person-option')) option.hidden = Boolean(q) && !option.dataset.search.includes(q);
+      });
+      form.addEventListener('submit', (event) => {
+        if (event.submitter?.value !== 'ok') return;
+        if (!form.querySelector('input[name="email"]:checked')) {
+          event.preventDefault();
+          const error = node.querySelector('.people-error');
+          error.textContent = multiple ? 'Pick at least one person.' : 'Pick someone to message.';
+          error.hidden = false;
+        }
+      });
+      node.addEventListener('close', () => {
+        const result = node.returnValue === 'ok'
+          ? { emails: [...form.querySelectorAll('input[name="email"]:checked')].map((i) => i.value), name: form.querySelector('input[name="name"]')?.value || '' }
+          : null;
+        node.remove();
+        resolve(result);
+      });
+      node.showModal();
+      node.querySelector(askName ? 'input[name="name"]' : '.people-search')?.focus();
+    });
+  }
+
   function view() {
     const list = chat.list;
     const open = chat.open;
@@ -190,13 +258,10 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
       <div class="page-head"><div><h1>Messages</h1><p>Team channels for each workspace, and direct messages with the people you work with.</p></div></div>
       <div class="chat-layout${route.conv ? ' has-conv' : ''}">
         <aside class="chat-list" aria-label="Conversations">
-          <form class="chat-new" data-form="chat-new-dm">
-            <select name="email" aria-label="Message someone" required>
-              <option value="">✎ New message to…</option>
-              ${contacts.map((c) => `<option value="${esc(c.email)}">${esc(c.name ? `${c.name} (${c.email})` : c.email)}</option>`).join('')}
-            </select>
-            <button class="btn small primary" type="submit">Open</button>
-          </form>
+          <div class="chat-new">
+            <button class="btn small primary" data-click="chat-new-dm"${contacts.length ? '' : ' disabled title="Join a workspace with other people first"'}>✎ Message</button>
+            <button class="btn small" data-click="chat-new-group"${contacts.length ? '' : ' disabled title="Join a workspace with other people first"'}>👥 New group</button>
+          </div>
           <div class="chat-list-items">${listItemsHtml()}</div>
         </aside>
         <section class="chat-pane" aria-label="Conversation">
@@ -208,9 +273,18 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
                 : `
             <header class="chat-head">
               <a class="btn ghost small back-to-list" href="#/chat">←</a>
-              <span class="chat-conv-icon" aria-hidden="true">${current?.type === 'ws' ? '#' : initial(current?.title)}</span>
-              <div><h2>${esc(current?.title || open.conversation.title || 'Conversation')}</h2><small class="muted">${current?.type === 'ws' ? 'Everyone in this workspace' : esc(current?.with || '')}</small></div>
-              <button class="btn small" data-click="chat-call" title="Start a video call with everyone here">📹 Start call</button>
+              <span class="chat-conv-icon${current?.type === 'group' ? ' group' : ''}" aria-hidden="true">${iconOf(current)}</span>
+              <div><h2>${esc(current?.title || open.conversation.title || 'Conversation')}</h2><small class="muted">${subtitle(current, open.conversation)}</small></div>
+              <div class="chat-head-actions">
+                <button class="btn small" data-click="chat-call" title="Start a video call with everyone here">📹 Call</button>
+                ${
+                  current?.type === 'group'
+                    ? `<button class="btn small" data-click="chat-group-add" title="Add people">👥 Add</button>
+                       <button class="btn small ghost" data-click="chat-group-rename" title="Rename the group">✎</button>
+                       <button class="btn small ghost" data-click="chat-group-leave" title="Leave the group">Leave</button>`
+                    : ''
+                }
+              </div>
             </header>
             <div class="chat-messages" aria-live="polite">${messagesHtml()}</div>
             <form class="chat-compose" data-form="chat-send">
@@ -266,25 +340,93 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
 
   const formActions = {
     'chat-send': (form) => send(form),
-    'chat-new-dm': async (form, data) => {
-      const email = data.get('email');
-      if (!email) return;
+  };
+
+  // Reloads the conversation list and the open conversation (after a group changes).
+  async function refresh(id) {
+    await loadList();
+    if (id) await loadMessages(id);
+    render();
+  }
+
+  const clickActions = {
+    'chat-new-dm': async () => {
+      const picked = await pickPeople({ title: 'New message', multiple: false, submitLabel: 'Message' });
+      if (!picked) return;
       try {
-        const { id } = await api('POST', '/chat/dm', { email });
+        const { id } = await api('POST', '/chat/dm', { email: picked.emails[0] });
         chat.focusComposer = true;
         go(`#/chat/${encodeURIComponent(id)}`);
       } catch (error) {
         toast(error.message);
       }
     },
-  };
-
-  const clickActions = {
+    'chat-new-group': async () => {
+      const picked = await pickPeople({ title: 'New group', multiple: true, askName: true, submitLabel: 'Create group' });
+      if (!picked) return;
+      try {
+        const { id } = await api('POST', '/chat/groups', { name: picked.name, members: picked.emails });
+        chat.focusComposer = true;
+        toast('Group created');
+        go(`#/chat/${encodeURIComponent(id)}`);
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'chat-group-add': async () => {
+      const id = chat.open.id;
+      const picked = await pickPeople({ title: 'Add people to the group', multiple: true, submitLabel: 'Add', exclude: chat.open.conversation.members || [] });
+      if (!picked) return;
+      try {
+        await api('PATCH', `/chat/${encodeURIComponent(id)}`, { add: picked.emails });
+        await refresh(id);
+        toast(`Added ${picked.emails.length} ${picked.emails.length === 1 ? 'person' : 'people'}`);
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'chat-group-rename': async () => {
+      const id = chat.open.id;
+      const current = findConversation(id);
+      const node = document.createElement('dialog');
+      node.className = 'dialog';
+      node.innerHTML = `<form method="dialog"><h2>Rename group</h2><label>Group name<input name="name" required maxlength="80" value="${esc(current?.title || '')}" /></label>
+        <div class="row end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Save</button></div></form>`;
+      document.body.append(node);
+      const name = await new Promise((resolve) => {
+        node.addEventListener('close', () => {
+          resolve(node.returnValue === 'ok' ? node.querySelector('input').value : null);
+          node.remove();
+        });
+        node.showModal();
+      });
+      if (!name) return;
+      try {
+        await api('PATCH', `/chat/${encodeURIComponent(id)}`, { name });
+        await refresh(id);
+        toast('Group renamed');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'chat-group-leave': async () => {
+      const current = findConversation(chat.open.id);
+      if (!confirm(`Leave “${current?.title}”? You won’t see its messages unless someone adds you back.`)) return;
+      try {
+        await api('POST', `/chat/${encodeURIComponent(chat.open.id)}/leave`);
+        chat.open = null;
+        await loadList();
+        toast('You left the group');
+        go('#/chat');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
     'chat-call': async () => {
       const current = findConversation(chat.open.id);
       try {
         const { meeting } = await api('POST', '/meetings', {
-          title: current?.type === 'ws' ? `${current.title} team call` : `Call with ${getMe().name || getMe().email}`,
+          title: current?.type === 'ws' ? `${current.title} team call` : current?.type === 'group' ? `${current.title} call` : `Call with ${getMe().name || getMe().email}`,
           conv: chat.open.id,
           durationMin: 30,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

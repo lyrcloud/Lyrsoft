@@ -787,7 +787,7 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
 registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
 
 registerCollabRoutes(route, {
-  db: { get, put, queryAll },
+  db: { get, put, del, queryAll },
   HttpError,
   openWorkspace,
   isStaff,

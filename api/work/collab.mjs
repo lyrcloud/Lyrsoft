@@ -1,10 +1,14 @@
 // Lyrsoft chat and meetings, mounted on the work API (api/work/index.mjs) like the mail routes.
 //
-// Chat: every workspace has a team channel ("ws.<wsId>", its members), and any two people who share a
-// workspace (or a staff member and anyone) can message each other directly ("dm.<hash>"). The app
-// polls for new messages while a conversation is open.
+// Chat: every workspace has a team channel ("ws.<wsId>", its members); any two people who share a
+// workspace (or a staff member and anyone) can message each other directly ("dm.<hash>"); and anyone
+// can start a group with people they work with ("grp.<random>"). The app polls for new messages while
+// a conversation is open.
 //   GET  /chat                                  conversations, unread flags and people I can message
 //   POST /chat/dm                               { email } open (or create) a direct conversation
+//   POST /chat/groups                           { name, members } start a group
+//   PATCH /chat/{conv}                          { name?, add? } rename a group or add people (members)
+//   POST /chat/{conv}/leave                     leave a group
 //   GET  /chat/{conv}/messages?after=<iso>      messages (newest 100, or those after `after`); marks read
 //   POST /chat/{conv}/messages                  { body }
 //
@@ -27,7 +31,7 @@
 //   MEETING#<id>     META                meeting
 //   MEETING#<id>     INVITE#<email>      host and invitees  GSI1: MEETUSER#<email> / <startsAt>#<id>
 import { CreateAttendeeCommand, CreateMeetingCommand, DeleteMeetingCommand, GetMeetingCommand } from '@aws-sdk/client-chime-sdk-meetings';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { meetingInviteEmail } from './account.mjs';
 import {
   attendeeExternalId,
@@ -36,8 +40,11 @@ import {
   channelId,
   cleanInvitees,
   cleanMeeting,
+  cleanGroupName,
   cleanMessage,
   CONV_RE,
+  GROUP_MEMBERS_MAX,
+  groupId,
   dmId,
   formatMeetingTime,
   isUnread,
@@ -96,7 +103,9 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     const id = newId();
     const message = { PK: `CHAT#${conv}`, SK: `MSG#${createdAt}#${id}`, id, conv, body, kind, meetingId, authorEmail: me.email, authorName: me.name || '', createdAt };
     await put(message);
-    const { title, ...stored } = meta;
+    // A channel's title comes from its workspace, so it isn't stored; a group keeps its own name.
+    const { title, ...rest } = meta;
+    const stored = meta.type === 'group' ? meta : rest;
     await put({ ...stored, PK: `CHAT#${conv}`, SK: 'META', conv, lastMessageAt: createdAt, lastSnippet: snippetOf(kind === 'meeting' ? `📹 ${body}` : body), lastAuthor: me.email });
     await put({ PK: `CHATREAD#${me.email}`, SK: conv, lastReadAt: createdAt });
     return message;
@@ -118,15 +127,27 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     const dmRows = await queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': `CHATUSER#${me.email}` } });
     const contacts = await contactsFor(me);
     const names = new Map(contacts.map((c) => [c.email, c.name]));
-    const dms = await Promise.all(
+    const rows = (await Promise.all(
       dmRows.map(async (row) => {
         const meta = await get(`CHAT#${row.conv}`, 'META');
-        const other = meta?.members.find((e) => e !== me.email) || me.email;
-        return out(row.conv, meta, { type: 'dm', title: names.get(other) || meta?.names?.[other] || other, with: other });
+        if (!meta) return null;
+        if (meta.type === 'group') {
+          return out(row.conv, meta, { type: 'group', title: meta.title, memberCount: meta.members.length, members: meta.members });
+        }
+        const other = meta.members.find((e) => e !== me.email) || me.email;
+        return out(row.conv, meta, { type: 'dm', title: names.get(other) || meta.names?.[other] || other, with: other });
       }),
-    );
+    )).filter(Boolean);
+    const dms = rows.filter((c) => c.type === 'dm');
+    const groups = rows.filter((c) => c.type === 'group');
     const byRecent = (a, b) => String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || '')) || a.title.localeCompare(b.title);
-    return { channels: channels.sort(byRecent), dms: dms.sort(byRecent), contacts, unreadCount: [...channels, ...dms].filter((c) => c.unread).length };
+    return {
+      channels: channels.sort(byRecent),
+      groups: groups.sort(byRecent),
+      dms: dms.sort(byRecent),
+      contacts,
+      unreadCount: [...channels, ...groups, ...dms].filter((c) => c.unread).length,
+    };
   });
 
   route('POST', '/chat/dm', async (me, _p, body) => {
@@ -145,6 +166,84 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { id: conv, title: contact.name || email, with: email };
   });
 
+  // ---------------------------------------------------------------- groups
+
+  const memberRow = (conv, email) => ({ PK: `CHAT#${conv}`, SK: `MEMBER#${email}`, GSI1PK: `CHATUSER#${email}`, GSI1SK: conv, conv, email });
+
+  // Emails the caller may put in a group: people they share a workspace with (anyone, for staff).
+  async function groupPeople(me, emails) {
+    const contacts = new Map((await contactsFor(me)).map((c) => [c.email, c]));
+    const list = tryClean(() => cleanInvitees(emails)).filter((e) => e !== me.email);
+    const stranger = list.find((e) => !contacts.has(e));
+    if (stranger) throw new HttpError(403, `You can add people who share a workspace with you. ${stranger} doesn’t.`);
+    return list.map((e) => contacts.get(e));
+  }
+
+  async function openGroup(me, conv) {
+    const { meta } = await openConversation(me, conv);
+    if (meta.type !== 'group') throw bad('Only groups can be changed.');
+    return meta;
+  }
+
+  // A one-line notice in the conversation ("Ada added Ben").
+  const notice = (me, conv, meta, body) => postMessage(me, conv, meta, { body, kind: 'system' });
+
+  route('POST', '/chat/groups', async (me, _p, body) => {
+    const name = tryClean(() => cleanGroupName(body.name));
+    const people = await groupPeople(me, body.members);
+    if (!people.length) throw bad('Add at least one person to the group.');
+    if (people.length + 1 > GROUP_MEMBERS_MAX) throw bad(`A group can have up to ${GROUP_MEMBERS_MAX} people.`);
+    const conv = groupId(randomBytes(12).toString('hex'));
+    const members = [me.email, ...people.map((p) => p.email)];
+    const meta = {
+      PK: `CHAT#${conv}`,
+      SK: 'META',
+      conv,
+      type: 'group',
+      title: name,
+      members,
+      names: Object.fromEntries([[me.email, me.name || ''], ...people.map((p) => [p.email, p.name || ''])]),
+      createdBy: me.email,
+      createdAt: now(),
+    };
+    await put(meta);
+    for (const email of members) await put(memberRow(conv, email));
+    await notice(me, conv, meta, `${me.name || me.email} created the group “${name}”`);
+    return [201, { id: conv, title: name }];
+  });
+
+  route('PATCH', '/chat/{conv}', async (me, { conv }, body) => {
+    let meta = await openGroup(me, conv);
+    if ('name' in body) {
+      const name = tryClean(() => cleanGroupName(body.name));
+      if (name !== meta.title) {
+        meta = { ...meta, title: name };
+        await put(meta);
+        await notice(me, conv, meta, `${me.name || me.email} renamed the group to “${name}”`);
+      }
+    }
+    if (body.add) {
+      const added = (await groupPeople(me, body.add)).filter((p) => !meta.members.includes(p.email));
+      if (!added.length) throw bad('Everyone you picked is already in the group.');
+      if (meta.members.length + added.length > GROUP_MEMBERS_MAX) throw bad(`A group can have up to ${GROUP_MEMBERS_MAX} people.`);
+      meta = { ...meta, members: [...meta.members, ...added.map((p) => p.email)], names: { ...meta.names, ...Object.fromEntries(added.map((p) => [p.email, p.name || ''])) } };
+      await put(meta);
+      for (const p of added) await put(memberRow(conv, p.email));
+      await notice(me, conv, meta, `${me.name || me.email} added ${added.map((p) => p.name || p.email).join(', ')}`);
+    }
+    const { PK, SK, ...group } = meta;
+    return { group: { id: conv, title: group.title, members: group.members, names: group.names } };
+  });
+
+  route('POST', '/chat/{conv}/leave', async (me, { conv }) => {
+    const meta = await openGroup(me, conv);
+    const next = { ...meta, members: meta.members.filter((e) => e !== me.email) };
+    await notice(me, conv, next, `${me.name || me.email} left the group`);
+    await put({ ...(await get(`CHAT#${conv}`, 'META')), members: next.members });
+    await db.del(`CHAT#${conv}`, `MEMBER#${me.email}`);
+    return { left: true };
+  });
+
   route('GET', '/chat/{conv}/messages', async (me, { conv }, _b, query) => {
     const { meta } = await openConversation(me, conv);
     const after = query.get('after');
@@ -152,7 +251,10 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     if (after) messages = messages.filter((m) => m.createdAt > after);
     messages = messages.slice(-100);
     if (meta.lastMessageAt) await put({ PK: `CHATREAD#${me.email}`, SK: conv, lastReadAt: meta.lastMessageAt });
-    return { conversation: { id: conv, type: meta.type || (conv.startsWith('ws.') ? 'ws' : 'dm'), title: meta.title || null, members: meta.members || null }, messages: messages.map(messageOut) };
+    return {
+      conversation: { id: conv, type: meta.type || (conv.startsWith('ws.') ? 'ws' : 'dm'), title: meta.title || null, members: meta.members || null, names: meta.names || {}, createdBy: meta.createdBy || null },
+      messages: messages.map(messageOut),
+    };
   });
 
   route('POST', '/chat/{conv}/messages', async (me, { conv }, body) => {

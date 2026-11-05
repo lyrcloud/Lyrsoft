@@ -46,3 +46,14 @@ test('who sees and manages a meeting', () => {
   assert.equal(canManageMeeting(meeting, 'i@x.com', false), false);
   assert.equal(canManageMeeting(meeting, 'h@x.com', false), true);
 });
+
+test('groups: ids and names', async () => {
+  const { groupId, cleanGroupName } = await import('./collab-model.mjs');
+  const id = groupId('0123456789abcdef01234567ffff');
+  assert.equal(id, 'grp.0123456789abcdef01234567');
+  assert.match(id, CONV_RE);
+  assert.doesNotMatch('grp.xyz', CONV_RE);
+  assert.equal(cleanGroupName('  Design   team '), 'Design team');
+  assert.throws(() => cleanGroupName(' '), /name/);
+  assert.throws(() => cleanGroupName('x'.repeat(81)), /name/);
+});

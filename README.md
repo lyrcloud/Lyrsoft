@@ -11,7 +11,7 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 
 ## Messages and meetings
 
-- **Messages** (`/app/#/chat`, `lyrsoft/chat.js`, API in `api/work/collab.mjs`): a team channel for every workspace, and direct messages between people who share a workspace (staff can message anyone). The open conversation polls every 4 seconds; the sidebar badge every 30.
+- **Messages** (`/app/#/chat`, `lyrsoft/chat.js`, API in `api/work/collab.mjs`): **groups** (a name and any people you share a workspace with; members can add people, rename or leave), **direct messages** with one person, and a **team channel** for every workspace. Staff can add or message anyone. The open conversation polls every 4 seconds; the sidebar badge every 30.
 - **Meetings** (`/app/#/meetings`, `lyrsoft/meet.js`): schedule a video meeting and email the invitations (time shown in the host's time zone, with a Join link to `/app/#/meet/<id>`), start an instant call, or call everyone in a conversation from Messages. The host (or staff) can invite more people or cancel.
 - **Calls** run on **Amazon Chime SDK**: joining creates the Chime meeting on first use and an attendee per person (about $0.0017 per attendee-minute). Mute, camera, screen sharing, invite link and leave. The browser SDK is bundled into `lyrsoft/chime-sdk.js` by `scripts/build-chime-sdk.mjs` and only loads when someone joins.
 - **Recording** happens in the browser: it records the screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file to your downloads. Nothing is uploaded. It needs Chrome, Edge or Firefox on a computer; phone browsers can't capture the screen.

@@ -2817,3 +2817,93 @@ a.pill-staff:hover {
     min-width: 58px;
   }
 }
+
+/* ------------------------------------------------------------ chat groups and the people picker */
+
+.chat-new .btn {
+  flex: 1;
+}
+
+.chat-conv-icon.group {
+  background: linear-gradient(135deg, #00c875, #00c2ff);
+  font-size: 1rem;
+}
+
+.chat-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.chat-system {
+  align-self: center;
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.people-dialog form {
+  max-height: min(80vh, 640px);
+}
+
+.people-search {
+  width: 100%;
+}
+
+.people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  margin-top: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.dialog label.person-option {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.person-option:hover {
+  background: var(--hover);
+}
+
+.person-option[hidden] {
+  display: none;
+}
+
+.person-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.person-option > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.person-option small {
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .chat-head {
+    flex-wrap: wrap;
+  }
+
+  .chat-head-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

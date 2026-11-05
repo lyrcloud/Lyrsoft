@@ -2,6 +2,8 @@
 //   #/profile        your profile: name, verified email, mobile number (texted 6-digit code), email updates
 //   #/admin          admin console (admins and the super admin): every account, roles, disabling
 //   #/admin/updates  product update emails to everyone opted in (sent by the super admin)
+import { avatarHtml, imageFileToAvatar } from './avatar.js';
+
 const PROVIDERS = { GoogleOIDC: 'Google', Cognito: 'Email and password', GitHubBridge: 'GitHub' };
 const ROLE_NAMES = { superadmin: 'Super admin', admin: 'Admin', user: 'User' };
 
@@ -36,10 +38,18 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
       <div class="page-head"><div><h1>My profile</h1><p>Your Lyrsoft account, contact details and email settings.</p></div></div>
       <div class="profile-grid">
         <section class="panel profile-card">
-          <span class="avatar huge">${initial(p.name || p.email)}</span>
+          <div class="photo-edit">
+            ${avatarHtml(p, 'avatar huge')}
+            <label class="photo-button" title="Change photo"><input type="file" accept="image/*" data-change="avatar-file" hidden />📷</label>
+          </div>
+          <div class="photo-actions">
+            <label class="btn small">${p.avatarSource === 'upload' ? 'Change photo' : 'Upload photo'}<input type="file" accept="image/*" data-change="avatar-file" hidden /></label>
+            ${p.avatarSource !== 'provider' && p.hasProviderPhoto ? '<button class="btn small" data-click="avatar-provider">Use Google photo</button>' : ''}
+            ${p.avatar ? '<button class="btn small ghost" data-click="avatar-remove">Remove photo</button>' : ''}
+          </div>
           <h2>${esc(p.name || p.email)}</h2>
           <p class="muted">${esc(p.email)}</p>
-          <span class="pill ${me.globalRole === 'user' ? '' : 'pill-staff'}">${ROLE_NAMES[me.globalRole] || 'User'}</span>
+          ${me.globalRole === 'user' ? '<span class="pill">User</span>' : `<a class="pill pill-staff" href="#/admin" title="Open the admin console">${ROLE_NAMES[me.globalRole]} · Admin console →</a>`}
           <dl class="facts">
             <dt>Signed in with</dt><dd>${esc(PROVIDERS[p.provider] || p.provider || '—')}</dd>
             <dt>Member since</dt><dd>${when(p.createdAt)}</dd>
@@ -135,7 +145,7 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
       const canDisable = u.role === 'user' ? isStaff() : u.role === 'admin' && isSuper();
       return `
         <tr${u.disabled ? ' class="is-disabled"' : ''}>
-          <td><div class="user-cell"><span class="avatar">${initial(u.name || u.email)}</span><span><b>${esc(u.name || '—')}</b><small>${esc(u.email)}</small></span></div></td>
+          <td><div class="user-cell">${avatarHtml(u)}<span><b>${esc(u.name || '—')}</b><small>${esc(u.email)}</small></span></div></td>
           <td>${esc(PROVIDERS[u.provider] || u.provider || '—')}</td>
           <td>${u.phone ? `<span class="badge ok">✓ ${esc(u.phone)}</span>` : '<span class="muted">—</span>'}</td>
           <td>${
@@ -211,7 +221,19 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
     }
   };
 
+  const saveAvatar = async (avatar, message) => {
+    try {
+      setProfile((await api('PATCH', '/me/profile', { avatar })).profile);
+      toast(message);
+    } catch (error) {
+      toast(error.message);
+    }
+    render();
+  };
+
   const clickActions = {
+    'avatar-provider': () => saveAvatar(null, 'Using your Google photo'),
+    'avatar-remove': () => saveAvatar('initials', 'Photo removed'),
     'phone-change': () => {
       admin.changingPhone = true;
       render();
@@ -236,6 +258,16 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
   };
 
   const changeActions = {
+    'avatar-file': async (target) => {
+      const file = target.files?.[0];
+      if (!file) return;
+      toast('Uploading photo…');
+      try {
+        await saveAvatar(await imageFileToAvatar(file), 'Profile photo updated');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
     'email-updates': async (target) => {
       try {
         setProfile((await api('PATCH', '/me/profile', { emailUpdates: target.checked })).profile);

@@ -52,6 +52,23 @@ export function checkCode(secret, profile, code, now = Date.now()) {
 // Shows only the first and last digits of a number to admins.
 export const maskPhone = (phone) => (phone ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : null);
 
+// ------------------------------------------------------------------ profile photos
+
+// A photo the browser has already cropped and shrunk (lyrsoft/avatar.js), stored on the profile row as
+// a data URL. "initials" means the person chose no photo; unset means use the sign-in provider's photo.
+export const AVATAR_MAX_LENGTH = 60_000;
+const AVATAR_RE = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const HTTPS_RE = /^https:\/\/[^\s"'<>]+$/;
+
+export function avatarFor(profile) {
+  if (profile?.avatar === 'initials') return null;
+  if (typeof profile?.avatar === 'string' && AVATAR_RE.test(profile.avatar)) return profile.avatar;
+  return typeof profile?.picture === 'string' && HTTPS_RE.test(profile.picture) ? profile.picture : null;
+}
+
+const avatarSource = (profile) =>
+  profile?.avatar === 'initials' ? 'initials' : typeof profile?.avatar === 'string' && AVATAR_RE.test(profile.avatar) ? 'upload' : 'provider';
+
 // ------------------------------------------------------------------ profile shapes
 
 // What the signed-in person sees about their own account.
@@ -61,6 +78,9 @@ export function selfProfile(profile, role) {
     email: profile.email ?? null,
     name: profile.name ?? null,
     provider: profile.provider ?? null,
+    avatar: avatarFor(profile),
+    avatarSource: avatarSource(profile),
+    hasProviderPhoto: Boolean(profile.picture),
     role,
     emailVerified: true, // only verified emails get this far (see emailTrusted in roles.mjs)
     phone: profile.phoneVerified ? profile.phone ?? null : null,
@@ -80,6 +100,7 @@ export function adminProfile(profile, role) {
     email: profile.email ?? null,
     name: profile.name ?? null,
     provider: profile.provider ?? null,
+    avatar: avatarFor(profile),
     role,
     disabled: profile.disabled === true && role !== 'superadmin',
     phone: profile.phoneVerified ? maskPhone(profile.phone) : null,
@@ -93,13 +114,18 @@ export function adminProfile(profile, role) {
 export function selfUpdateError(changes) {
   const keys = Object.keys(changes || {});
   if (!keys.length) return [400, 'Nothing to change.'];
-  const unknown = keys.find((key) => !['name', 'emailUpdates'].includes(key));
+  const unknown = keys.find((key) => !['name', 'emailUpdates', 'avatar'].includes(key));
   if (unknown) return [400, `Unknown field "${unknown}".`];
   if ('name' in changes) {
     const name = typeof changes.name === 'string' ? changes.name.trim() : '';
     if (!name || name.length > NAME_MAX) return [400, `Name must be 1 to ${NAME_MAX} characters.`];
   }
   if ('emailUpdates' in changes && typeof changes.emailUpdates !== 'boolean') return [400, '"emailUpdates" must be true or false.'];
+  if ('avatar' in changes) {
+    const { avatar } = changes;
+    const ok = avatar === null || avatar === 'initials' || (typeof avatar === 'string' && avatar.length <= AVATAR_MAX_LENGTH && AVATAR_RE.test(avatar));
+    if (!ok) return [400, 'Photo must be a JPEG, PNG or WebP image under 45 KB.'];
+  }
   return null;
 }
 

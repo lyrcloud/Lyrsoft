@@ -3,6 +3,7 @@
 // through the shared Lyrcloud Cognito user pool (src/auth.js).
 import { createAccount } from './account.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
+import { avatarHtml } from './avatar.js';
 import { WORK_API_BASE } from './config.js';
 import { createMail } from './mail.js';
 import { showSignIn } from './signin.js';
@@ -206,14 +207,15 @@ const crumb = () =>
 
 function topbar() {
   const me = state.me;
-  const staff = me && me.globalRole !== 'user' ? `<span class="pill pill-staff">${ROLE_LABELS[me.globalRole]}</span>` : '';
+  // The role badge opens the admin console.
+  const staff = me && me.globalRole !== 'user' ? `<a class="pill pill-staff" href="#/admin" title="Open the admin console" aria-label="${ROLE_LABELS[me.globalRole]}: open the admin console">🛡<span class="pill-label"> ${ROLE_LABELS[me.globalRole]}</span></a>` : '';
   return `
     <header class="topbar">
       <button class="icon-btn menu-toggle" data-click="toggle-sidebar" aria-label="Toggle navigation">☰</button>
       <span class="crumb">${esc(crumb())}</span>
       <div class="topbar-right">
         ${staff}
-        ${me ? `<a class="avatar" href="#/profile" title="My profile (${esc(me.email)})">${initial(me.name || me.email)}</a>` : ''}
+        ${me ? `<a class="avatar-link" href="#/profile" title="My profile (${esc(me.email)})">${avatarHtml(me.profile || me)}</a>` : ''}
         <button class="btn ghost small" data-click="sign-out">Sign out</button>
       </div>
     </header>`;

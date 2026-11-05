@@ -228,6 +228,7 @@ async function identify(event) {
     email,
     provider,
     providerName,
+    providerPicture: user.picture || null,
     name: (profile?.nameLocked ? profile.name : providerName || profile?.name) || '',
     globalRole,
   };
@@ -372,6 +373,7 @@ async function touchProfile(me) {
     email: me.email,
     name: existing?.nameLocked ? existing.name : me.providerName || existing?.name || null,
     provider: me.provider,
+    picture: me.providerPicture || existing?.picture || null,
     createdAt: existing?.createdAt || at,
     lastLoginAt: at,
   };
@@ -407,6 +409,11 @@ route('PATCH', '/me/profile', async (me, _p, body) => {
   if ('emailUpdates' in body) {
     changes.emailUpdates = body.emailUpdates;
     changes.emailUpdatesChangedAt = changes.profileUpdatedAt;
+  }
+  // null goes back to the sign-in provider's photo; "initials" shows no photo.
+  if ('avatar' in body) {
+    if (body.avatar === null) return { profile: selfProfile(await saveProfile(me, changes, ['avatar']), me.globalRole) };
+    changes.avatar = body.avatar;
   }
   return { profile: selfProfile(await saveProfile(me, changes), me.globalRole) };
 });

@@ -64,3 +64,19 @@ test('update emails: validation, recipients and unsubscribe tokens', () => {
   assert.equal(validUnsubscribeToken('s', 'u2', token), false);
   assert.equal(validUnsubscribeToken('s', 'u1', 'nope'), false);
 });
+
+test('profile photos: uploads, initials and the sign-in photo', async () => {
+  const { avatarFor, selfProfile } = await import('./account.mjs');
+  const jpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  assert.equal(selfUpdateError({ avatar: jpeg }), null);
+  assert.equal(selfUpdateError({ avatar: null }), null);
+  assert.equal(selfUpdateError({ avatar: 'initials' }), null);
+  assert.equal(selfUpdateError({ avatar: 'data:image/svg+xml;base64,PHN2Zz4=' })?.[0], 400);
+  assert.equal(selfUpdateError({ avatar: `data:image/jpeg;base64,${'A'.repeat(70_000)}` })?.[0], 400);
+  const google = 'https://lh3.googleusercontent.com/a/photo';
+  assert.equal(avatarFor({ picture: google }), google);
+  assert.equal(avatarFor({ picture: google, avatar: jpeg }), jpeg);
+  assert.equal(avatarFor({ picture: google, avatar: 'initials' }), null);
+  assert.equal(avatarFor({ picture: 'javascript:alert(1)' }), null);
+  assert.equal(selfProfile({ userId: 'u', picture: google, avatar: jpeg }, 'user').avatarSource, 'upload');
+});

@@ -11,7 +11,7 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 
 ## Accounts and admin console
 
-- **Profile** (`/app/#/profile`, `lyrsoft/account.js`): name, verified email, mobile number and email settings. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.
+- **Profile** (`/app/#/profile`, `lyrsoft/account.js`): photo (the Google photo by default, or an upload the browser shrinks to a ≤ 45 KB JPEG, `lyrsoft/avatar.js`), name, verified email, mobile number and email settings. The role badge in the top bar opens the admin console. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.
 - **Mobile verification:** `POST /me/phone` texts a 6-digit code through Amazon SNS and `POST /me/phone/verify` checks it; only an HMAC of the code is stored (key in the `lyrsoft/app` secret). Limits: 5 codes per person and 200 for the site per day. The AWS account's SMS is still in the **SNS sandbox** ($1/month spend limit), so codes only reach numbers verified in the SNS console until production SMS access is granted.
 - **Emails** (from `Lyrsoft <no-reply@lyrsoft.com>`, stack parameter `MailFrom`, replies to hello@lyrsoft.com): a welcome email on first sign-in, and product updates the super admin sends from the admin console. Each update has a signed one-click unsubscribe link (`/public/unsubscribe`), and people can switch updates off in their profile.
 - **Admin console** (`/app/#/admin`, admins and the super admin): every account with sign-in method, mobile, role and last sign-in. Admins disable regular users; only the super admin makes or removes admins and emails updates. Admins made in Lyrcloud are admins here too.

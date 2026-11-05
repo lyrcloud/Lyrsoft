@@ -162,6 +162,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
           <footer class="call-controls">
             <button class="call-btn" data-call="mic"></button>
             <button class="call-btn" data-call="camera"></button>
+            <button class="call-btn" data-call="flip" hidden>🔄<span>Flip</span></button>
             <button class="call-btn" data-call="share"></button>
             <button class="call-btn" data-call="record"></button>
             <button class="call-btn" data-call="invite">🔗<span>Invite</span></button>
@@ -181,6 +182,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     };
     set('mic', !call.muted, 'Mute', 'Unmute', '🎙', '🔇');
     set('camera', call.camera, 'Stop video', 'Start video', '📷', '🚫');
+    // Flip shows while the camera is on and there's more than one camera (phones), or the count isn't known yet.
+    root.querySelector('[data-call="flip"]').hidden = !call.camera || call.cameraCount === 1;
     set('share', call.sharing, 'Stop sharing', 'Share screen', '🖥', '🖥', !navigator.mediaDevices?.getDisplayMedia);
     set('record', Boolean(recorder), 'Stop recording', 'Record', '⏹', '⏺', !canRecord());
     root.querySelector('[data-call="share"]').classList.toggle('active', call.sharing);
@@ -241,6 +244,9 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       people: new Map(),
       muted: false,
       camera: false,
+      facing: 'user', // front camera first
+      cameraDeviceId: null,
+      cameraCount: null,
       sharing: false,
       contentTileId: null,
       minimized: false,
@@ -299,7 +305,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         renderTiles();
         const video = callRoot().querySelector(`[data-attendee="${CSS.escape(tile.boundAttendeeId)}"] video`);
         if (video) av.bindVideoElement(tile.tileId, video);
-        video?.classList.toggle('mirror', Boolean(tile.localTile));
+        video?.classList.toggle('mirror', Boolean(tile.localTile) && call.facing !== 'environment');
       },
       videoTileWasRemoved(tileId) {
         if (!call) return;
@@ -344,6 +350,25 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     render();
   }
 
+  // Cameras: phones have a front ("user") and a rear ("environment") one. Asking by facing mode works
+  // on phones whatever the cameras are called; computers with one camera just get that one.
+  async function startCamera(facing) {
+    const { av } = call;
+    try {
+      await av.startVideoInput({ facingMode: { exact: facing } });
+    } catch {
+      // No camera facing that way (most computers): use the next camera in the list instead.
+      const cameras = await av.listVideoInputDevices();
+      if (!cameras.length) throw new Error('No camera found.');
+      const current = call.cameraDeviceId;
+      const next = cameras[(cameras.findIndex((c) => c.deviceId === current) + 1) % cameras.length] || cameras[0];
+      await av.startVideoInput(next.deviceId);
+      call.cameraDeviceId = next.deviceId;
+    }
+    call.facing = facing;
+    call.cameraCount = (await av.listVideoInputDevices().catch(() => [])).length;
+  }
+
   async function toggleCamera() {
     const { av } = call;
     try {
@@ -352,16 +377,34 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         await av.stopVideoInput();
         call.camera = false;
       } else {
-        const cameras = await av.listVideoInputDevices();
-        if (!cameras.length) return toast('No camera found.');
-        await av.startVideoInput(cameras[0].deviceId);
+        await startCamera(call.facing || 'user');
         av.startLocalVideoTile();
         call.camera = true;
       }
-    } catch {
-      toast('Camera blocked. Allow it in your browser’s site settings.');
+    } catch (error) {
+      toast(error.message === 'No camera found.' ? 'No camera found.' : 'Camera blocked. Allow it in your browser’s site settings.');
     }
     renderCall();
+    mirrorSelf();
+  }
+
+  // Switches between the front and rear camera while the video keeps going.
+  async function flipCamera() {
+    if (!call.camera) return;
+    try {
+      await startCamera(call.facing === 'environment' ? 'user' : 'environment');
+      toast(call.facing === 'environment' ? 'Rear camera' : 'Front camera');
+    } catch {
+      toast('Couldn’t switch camera.');
+    }
+    renderCall();
+    mirrorSelf();
+  }
+
+  // Your own front-camera picture is mirrored, like a mirror; the rear camera isn't, so text reads right.
+  function mirrorSelf() {
+    const self = call && callRoot().querySelector(`[data-attendee="${CSS.escape(call.selfId)}"] video`);
+    self?.classList.toggle('mirror', call.facing !== 'environment');
   }
 
   async function toggleShare() {
@@ -418,6 +461,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       call.muted = !call.muted;
       renderCall();
     } else if (action === 'camera') await toggleCamera();
+    else if (action === 'flip') await flipCamera();
     else if (action === 'share') await toggleShare();
     else if (action === 'record') await toggleRecording();
     else if (action === 'invite') await copy(call.joinUrl, 'Invite link copied. Invited people can join with it.');

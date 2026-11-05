@@ -265,6 +265,7 @@ function render() {
   app.classList.remove('sidebar-open');
   mail.afterRender();
   chat.afterRender();
+  meetings.afterRender();
   document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 

@@ -3470,3 +3470,145 @@ a.pill-staff:hover {
     padding: 0 8px;
   }
 }
+
+/* ------------------------------------------------------------ invitee field and picker extras (people.js) */
+
+.invitee-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.invitee-label .row {
+  flex-wrap: wrap;
+  font-weight: 400;
+}
+
+.invitee-field {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 42px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: text;
+}
+
+.invitee-field:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+.invitee-chips {
+  display: contents;
+}
+
+.invitee-chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.invitee-chip button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.invitee-chip button:hover {
+  background: var(--brand);
+  color: var(--on-color);
+}
+
+.invitee-input {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px;
+  border: 0 !important;
+  outline: 0;
+  background: transparent;
+  box-shadow: none !important;
+  font-weight: 400;
+}
+
+.invitee-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.invitee-suggest[hidden] {
+  display: none;
+}
+
+.invitee-option {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.invitee-option > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.invitee-option small {
+  color: var(--muted);
+}
+
+.invitee-option.active,
+.invitee-option:hover {
+  background: var(--brand-tint);
+}
+
+.people-picked {
+  margin: 0;
+}
+
+.person-option.new-email .avatar {
+  background: #0a8f5a;
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+}

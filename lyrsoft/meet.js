@@ -9,6 +9,8 @@
 // Messages), drawn by chat.js's ConversationView. Recording uses the browser's screen capture and MediaRecorder: it records the
 // screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file
 // on your device. Nothing is uploaded.
+import { attachInviteeField, inviteeField, pickPeople } from './people.js';
+
 export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog, chat }) {
   const meet = { list: null, lobby: null, scheduling: false };
   let call = null; // the active call (see joinCall)
@@ -74,9 +76,11 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
           <label class="wide">Title<input name="title" required maxlength="120" placeholder="e.g. Weekly project review" /></label>
           <label>Date and time<input name="startsAt" type="datetime-local" required value="${local}" /></label>
           <label>Length<select name="durationMin">${[15, 30, 45, 60, 90, 120].map((n) => `<option value="${n}"${n === 30 ? ' selected' : ''}>${n} minutes</option>`).join('')}</select></label>
-          <label class="wide">Invite people (emails, comma separated)<input name="invitees" list="meet-contacts" placeholder="name@example.com, …" /></label>
-          <datalist id="meet-contacts">${contacts.map((c) => `<option value="${esc(c.email)}">${esc(c.name)}</option>`).join('')}</datalist>
-          ${contacts.length ? `<div class="wide contact-picks">${contacts.slice(0, 24).map((c) => `<button type="button" class="chip" data-click="meet-add-invitee" data-email="${esc(c.email)}">+ ${esc(c.name || c.email)}</button>`).join('')}</div>` : ''}
+          <div class="wide invitee-label">
+            <span>Invite people</span>
+            ${inviteeField({ placeholder: contacts.length ? 'Type a name or email…' : 'Type an email address…' })}
+            <div class="row"><button type="button" class="btn small" data-click="meet-browse"${contacts.length ? '' : ' hidden'}>👥 Choose from your people</button><span class="muted small">Suggestions appear as you type. Anyone with an email can be invited.</span></div>
+          </div>
           <label class="check wide"><input type="checkbox" name="notify" checked /> Email the invitation with a Join link</label>
           <div class="row wide"><button class="btn primary" type="submit"${meet.scheduling ? ' disabled' : ''}>Schedule and invite</button><span class="muted small">Times are in your time zone (${esc(timeZone)}).</span></div>
         </form>
@@ -284,6 +288,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       title: data.meeting.title,
       joinUrl: data.meeting.joinUrl,
       conv: data.conv || data.meeting.conv,
+      meeting: data.meeting,
       chatOpen: false,
       chatUnread: 0,
       chatView: null,
@@ -516,7 +521,10 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     else if (action === 'flip') await flipCamera();
     else if (action === 'share') await toggleShare();
     else if (action === 'record') await toggleRecording();
-    else if (action === 'invite') await copy(call.joinUrl, 'Invite link copied. Invited people can join with it.');
+    else if (action === 'invite') {
+      if (call.meeting?.canManage) await promptInvite(call.meeting);
+      else await copy(call.joinUrl, 'Invite link copied. Ask the host to invite people who aren’t on the list.');
+    }
     else if (action === 'chat') toggleCallChat();
     else if (action === 'open-messages') {
       // The link navigates; shrink the call so Messages shows, and the call keeps going.
@@ -603,15 +611,32 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
 
   // ---------------------------------------------------------------- page actions
 
-  async function promptInvite(id) {
-    const values = await dialog('Invite people', [{ name: 'emails', label: 'Emails, comma separated', maxlength: 2000 }], 'Send invitations', '<p class="muted">They’ll get an email with the Join link.</p>');
-    const emails = values?.emails;
-    if (!emails) return;
+  // Everyone I can invite: people who share a workspace with me (staff: everyone).
+  async function contacts() {
+    if (!meet.contacts) meet.contacts = meet.list?.contacts || (await api('GET', '/meetings')).contacts;
+    return meet.contacts;
+  }
+
+  // The invite pop-up: search existing people, or type any email. `meeting` is the API's meeting.
+  async function promptInvite(meeting) {
+    const id = meeting.id;
+    const choosing = pickPeople({
+      contacts: await contacts(),
+      title: `Invite people to “${meeting.title}”`,
+      allowEmail: true,
+      exclude: [meeting.hostEmail, ...meeting.invitees],
+      submitLabel: 'Send invitations',
+      extraHtml: `<p class="muted small invite-link-row">Or share the link: <button type="button" class="btn small ghost" data-copy-link>🔗 Copy invite link</button></p>`,
+    });
+    document.querySelector('.people-dialog [data-copy-link]')?.addEventListener('click', () => copy(meeting.joinUrl, 'Invite link copied'));
+    const picked = await choosing;
+    if (!picked) return;
     try {
-      const { meeting, emailed } = await api('POST', `/meetings/${encodeURIComponent(id)}/invite`, { invitees: emails });
-      if (meet.lobby?.id === id) meet.lobby = meeting;
-      if (meet.list) meet.list.meetings = meet.list.meetings.map((m) => (m.id === id ? meeting : m));
-      toast(`Invited. ${emailed} email${emailed === 1 ? '' : 's'} sent.`);
+      const { meeting: updated, emailed } = await api('POST', `/meetings/${encodeURIComponent(id)}/invite`, { invitees: picked.emails });
+      if (meet.lobby?.id === id) meet.lobby = updated;
+      if (meet.list) meet.list.meetings = meet.list.meetings.map((m) => (m.id === id ? updated : m));
+      if (call?.meetingId === id) call.meeting = updated;
+      toast(`Invited ${picked.emails.length} ${picked.emails.length === 1 ? 'person' : 'people'}. ${emailed} email${emailed === 1 ? '' : 's'} sent.`);
       render();
     } catch (error) {
       toast(error.message);
@@ -629,7 +654,15 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     },
     'meet-show-call': () => showCall(),
     'meet-copy': (target) => copy(target.dataset.url, 'Meeting link copied'),
-    'meet-invite': (target) => promptInvite(target.dataset.id),
+    'meet-invite': (target) => {
+      const meeting = meet.lobby?.id === target.dataset.id ? meet.lobby : meet.list?.meetings.find((m) => m.id === target.dataset.id);
+      if (meeting) promptInvite(meeting);
+    },
+    'meet-browse': async () => {
+      const field = document.querySelector('.meeting-form [data-invitee-field]');
+      const picked = await pickPeople({ contacts: await contacts(), title: 'Choose people to invite', allowEmail: true, exclude: field.chosenEmails(), submitLabel: 'Add' });
+      if (picked) field.addPeople(picked.emails.map((email) => ({ email })));
+    },
     'meet-cancel': async (target) => {
       if (!confirm('Cancel this meeting? Everyone invited gets an email.')) return;
       try {
@@ -650,12 +683,6 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       }
     },
     'meet-record': () => toggleRecording(),
-    'meet-add-invitee': (target) => {
-      const input = document.querySelector('.meeting-form input[name="invitees"]');
-      const list = input.value.split(/[\s,;]+/).filter(Boolean);
-      if (!list.includes(target.dataset.email)) input.value = [...list, target.dataset.email].join(', ');
-      target.disabled = true;
-    },
   };
 
   const formActions = {
@@ -688,6 +715,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     load,
     ready,
     view: (route) => (route.view === 'meetings' ? meetingsView() : lobbyView()),
+    // The schedule form's invitee field needs its suggestions wired up after each render.
+    afterRender: () => attachInviteeField(document, () => meet.contacts || meet.list?.contacts || []),
     // A small "back to call" bar on every page while a call is minimized.
     banner: () =>
       call && call.minimized

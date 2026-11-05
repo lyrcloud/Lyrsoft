@@ -4,6 +4,7 @@
 // files, typing, seen) is a ConversationView (conversation.js), shared with the chat panel in calls.
 // The list and the sidebar badge poll for unread conversations; nothing re-renders while you type.
 import { ConversationView } from './conversation.js';
+import { pickPeople as sharedPickPeople } from './people.js';
 
 const POLL_LIST_MS = 8000;
 const POLL_BADGE_MS = 30000;
@@ -166,60 +167,8 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
     return current?.with || '';
   }
 
-  // A people picker: one person (a direct message) or several plus a name (a group).
-  // Resolves to { emails, name } or null.
-  function pickPeople({ title, multiple, askName = false, nameValue = '', submitLabel, exclude = [] }) {
-    const people = (chat.list?.contacts || []).filter((c) => !exclude.includes(c.email));
-    return new Promise((resolve) => {
-      const node = document.createElement('dialog');
-      node.className = 'dialog wide people-dialog';
-      node.innerHTML = `
-        <form method="dialog">
-          <h2>${esc(title)}</h2>
-          ${askName ? `<label>Group name<input name="name" required maxlength="80" value="${esc(nameValue)}" placeholder="e.g. Design team" /></label>` : ''}
-          ${
-            people.length
-              ? `<input type="search" class="people-search" placeholder="Search people" aria-label="Search people" />
-                 <div class="people-list">${people
-                   .map(
-                     (c) => `<label class="person-option" data-search="${esc(`${c.name} ${c.email}`.toLowerCase())}">
-                       <input type="${multiple ? 'checkbox' : 'radio'}" name="email" value="${esc(c.email)}" />
-                       <span class="avatar small">${initial(c.name || c.email)}</span>
-                       <span><b>${esc(c.name || c.email)}</b><small>${esc(c.email)}</small></span>
-                     </label>`,
-                   )
-                   .join('')}</div>`
-              : '<p class="muted">Everyone you work with is already here.</p>'
-          }
-          <p class="people-error auth-error" hidden></p>
-          <div class="row end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok"${people.length ? '' : ' disabled'}>${esc(submitLabel)}</button></div>
-        </form>`;
-      document.body.append(node);
-      const form = node.querySelector('form');
-      node.querySelector('.people-search')?.addEventListener('input', (event) => {
-        const q = event.target.value.trim().toLowerCase();
-        for (const option of node.querySelectorAll('.person-option')) option.hidden = Boolean(q) && !option.dataset.search.includes(q);
-      });
-      form.addEventListener('submit', (event) => {
-        if (event.submitter?.value !== 'ok') return;
-        if (!form.querySelector('input[name="email"]:checked')) {
-          event.preventDefault();
-          const error = node.querySelector('.people-error');
-          error.textContent = multiple ? 'Pick at least one person.' : 'Pick someone to message.';
-          error.hidden = false;
-        }
-      });
-      node.addEventListener('close', () => {
-        const result = node.returnValue === 'ok'
-          ? { emails: [...form.querySelectorAll('input[name="email"]:checked')].map((i) => i.value), name: form.querySelector('input[name="name"]')?.value || '' }
-          : null;
-        node.remove();
-        resolve(result);
-      });
-      node.showModal();
-      node.querySelector(askName ? 'input[name="name"]' : '.people-search')?.focus();
-    });
-  }
+  // The shared people picker (people.js), over everyone I can message.
+  const pickPeople = (options) => sharedPickPeople({ contacts: chat.list?.contacts || [], ...options });
 
   function view() {
     const contacts = chat.list.contacts || [];

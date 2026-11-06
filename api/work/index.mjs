@@ -15,6 +15,7 @@
 //   PROFILE#<sub> META             Lyrsoft account profile GSI1: PROFILE / <email>
 //   CONFIG      UPDATES            product update emails sent so far (newest first)
 //   RATE#sms#<sub> | RATE#sms#all  <day>   mobile codes texted (expires via TTL)
+//   CONTACTS#<sub> C#<id>          a contact in someone's address book (contacts.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -74,6 +75,7 @@ import {
 import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { channelId, registerCollabRoutes } from './collab.mjs';
+import { registerContactRoutes } from './contacts.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
 import {
   cleanLyrbotMessages,
@@ -158,6 +160,15 @@ const queryPrefix = (PK, prefix) =>
 async function deleteKeys(keys) {
   for (let i = 0; i < keys.length; i += 25) {
     let RequestItems = { [TABLE]: keys.slice(i, i + 25).map((Key) => ({ DeleteRequest: { Key } })) };
+    while (RequestItems && Object.keys(RequestItems).length) {
+      RequestItems = (await ddb.send(new BatchWriteCommand({ RequestItems }))).UnprocessedItems;
+    }
+  }
+}
+
+async function putMany(items) {
+  for (let i = 0; i < items.length; i += 25) {
+    let RequestItems = { [TABLE]: items.slice(i, i + 25).map((Item) => ({ PutRequest: { Item } })) };
     while (RequestItems && Object.keys(RequestItems).length) {
       RequestItems = (await ddb.send(new BatchWriteCommand({ RequestItems }))).UnprocessedItems;
     }
@@ -801,6 +812,8 @@ registerCollabRoutes(route, {
   now,
   newId,
 });
+
+registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
 
 // ------------------------------------------------------------------ public contact form
 

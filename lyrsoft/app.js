@@ -3,6 +3,7 @@
 // through the shared Lyrcloud Cognito user pool (src/auth.js).
 import { createAccount } from './account.js';
 import { createChat } from './chat.js';
+import { createContacts } from './contacts.js';
 import { createMeetings } from './meet.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
 import { avatarHtml } from './avatar.js';
@@ -99,6 +100,7 @@ function parseRoute() {
   if (parts[0] === 'profile') return { view: 'profile', params };
   if (parts[0] === 'chat') return { view: 'chat', conv: parts[1] || null, params };
   if (parts[0] === 'meetings') return { view: 'meetings', params };
+  if (parts[0] === 'contacts') return { view: 'contacts', id: parts[1] || null, params };
   if (parts[0] === 'meet' && parts[1]) return { view: 'meet', meetingId: parts[1], params };
   if (parts[0] === 'admin') return { view: 'admin', tab: parts[1] === 'updates' ? 'updates' : 'users', params };
   if (parts[0] === 'mail') {
@@ -132,6 +134,7 @@ const mail = createMail({ api, esc, toast, render: () => render(), go, withParam
 const account = createAccount({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const chat = createChat({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args), chat });
+const contacts = createContacts({ api, esc, toast, render: () => render(), go, initial, formatDateTime });
 const isAccountView = () => route.view === 'profile' || route.view === 'admin';
 const isCollabView = () => ['chat', 'meetings', 'meet'].includes(route.view);
 
@@ -173,6 +176,7 @@ async function load() {
     await account.load(route);
     await chat.load(route);
     await meetings.load(route);
+    await contacts.load(route);
   } catch (error) {
     if (seq === loadSeq) state.error = error.message;
   }
@@ -213,7 +217,7 @@ function sidebar() {
     </aside>`;
 }
 
-const CRUMBS = { profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting' };
+const CRUMBS = { profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts' };
 const crumb = () => (route.view.startsWith('mail') ? 'Mail' : CRUMBS[route.view] || state.ws?.workspace.name || 'Lyrsoft Work');
 
 function topbar() {
@@ -242,7 +246,7 @@ function render() {
   let content;
   if (state.error) {
     content = `<section class="panel empty"><h2>Something went wrong</h2><p>${esc(state.error)}</p><a class="btn primary" href="#/">Go to my workspaces</a></section>`;
-  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route) || !chat.ready(route) || !meetings.ready(route)) {
+  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route) || !chat.ready(route) || !meetings.ready(route) || !contacts.ready(route)) {
     content = '<p class="loading">Loading…</p>';
   } else {
     content = route.view.startsWith('mail')
@@ -251,6 +255,8 @@ function render() {
         ? account.view(route)
         : route.view === 'chat'
           ? chat.view(route)
+          : route.view === 'contacts'
+            ? contacts.view(route)
           : isCollabView()
             ? meetings.view(route)
             : views[route.view]();
@@ -259,14 +265,14 @@ function render() {
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content${route.view === 'chat' ? ' wide' : ''}">${meetings.banner()}${content}</main>
+      <main class="content${route.view === 'chat' || route.view === 'contacts' ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
   mail.afterRender();
   chat.afterRender();
   meetings.afterRender();
-  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
+  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
 // ------------------------------------------------------------------ views
@@ -951,9 +957,9 @@ const formActions = {
   },
 };
 
-Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions);
-Object.assign(changeActions, account.changeActions, mail.changeActions);
-const inputActions = { ...account.inputActions, ...mail.inputActions, ...chat.inputActions };
+Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions, contacts.clickActions);
+Object.assign(changeActions, account.changeActions, mail.changeActions, contacts.changeActions);
+const inputActions = { ...account.inputActions, ...mail.inputActions, ...chat.inputActions, ...contacts.inputActions };
 Object.assign(formActions, mail.formActions, account.formActions, chat.formActions, meetings.formActions);
 
 app.addEventListener('click', (event) => {

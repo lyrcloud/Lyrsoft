@@ -1,7 +1,8 @@
 // Builds lyrsoft.com (lyrsoft/) into dist-lyrsoft/: the company website at / and the Lyrsoft Work app at /app/.
 // Assets go under /assets/<content hash>/ so they can be cached forever.
 // The Cognito helpers (src/auth.js, src/cognito.js) are copied alongside, and config.js carries the API URL
-// from LYRSOFT_API_BASE (set by scripts/deploy-lyrsoft.sh from the lyrsoft-work-api stack).
+// from LYRSOFT_API_BASE (set by scripts/deploy-lyrsoft.sh from the lyrsoft-work-api stack) and the optional
+// LYRSOFT_GOOGLE_CLIENT_ID for importing from Google Contacts.
 import { createHash } from 'node:crypto';
 import { copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -15,7 +16,10 @@ for (const name of await readdir('lyrsoft')) {
 }
 files.set('auth.js', await readFile('src/auth.js'));
 files.set('cognito.js', await readFile('src/cognito.js'));
-files.set('config.js', Buffer.from(`export const WORK_API_BASE = ${JSON.stringify(apiBase)};\n`));
+// LYRSOFT_GOOGLE_CLIENT_ID: a Google OAuth web client (People API, lyrsoft.com as a JavaScript origin)
+// that lets Contacts import straight from Google; without it the app explains Google's own export.
+const googleClientId = process.env.LYRSOFT_GOOGLE_CLIENT_ID || '';
+files.set('config.js', Buffer.from(`export const WORK_API_BASE = ${JSON.stringify(apiBase)};\nexport const GOOGLE_CLIENT_ID = ${JSON.stringify(googleClientId)};\n`));
 
 const hash = createHash('sha256');
 for (const [name, body] of [...files].sort(([a], [b]) => a.localeCompare(b))) hash.update(name).update(body);

@@ -136,6 +136,7 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
         <p class="nav-label">Communicate</p>
         <a href="#/chat"${current.view === 'chat' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">💬</span>Messages<span class="count" data-chat-badge${chat.unreadCount ? '' : ' hidden'}>${chat.unreadCount || ''}</span></a>
         <a href="#/meetings"${current.view === 'meetings' || current.view === 'meet' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📹</span>Meetings</a>
+        <a href="#/contacts"${current.view === 'contacts' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📇</span>Contacts</a>
       </nav>`;
   }
 

@@ -3612,3 +3612,552 @@ a.pill-staff:hover {
   align-items: center;
   margin: 0;
 }
+
+/* ------------------------------------------------------------ contacts (contacts.js) */
+
+.contacts-layout {
+  display: grid;
+  grid-template-columns: minmax(270px, 360px) minmax(0, 1fr);
+  height: calc(100vh - 190px);
+  min-height: 460px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.contacts-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 6px;
+}
+
+.contacts-search {
+  width: 100%;
+}
+
+.contacts-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.contacts-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.contact-letter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 14px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.contact-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-left: 10px;
+}
+
+.contact-row.current,
+.contact-row:hover {
+  background: var(--hover);
+}
+
+.contact-row.current {
+  box-shadow: inset 3px 0 var(--brand);
+}
+
+.contact-row > a {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 12px 8px 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.contact-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.contact-row-text b,
+.contact-row-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-row-text small {
+  color: var(--muted);
+}
+
+.contact-star {
+  color: #f5a623;
+}
+
+.contact-more {
+  padding: 10px 14px;
+}
+
+.contact-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+}
+
+.contact-avatar.big {
+  width: 64px;
+  height: 64px;
+  font-size: 1.6rem;
+}
+
+.contact-detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.contacts-empty-icon {
+  display: block;
+  font-size: 2.4rem;
+}
+
+.contact-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.contact-head h2 {
+  font-size: 1.4rem;
+  overflow-wrap: anywhere;
+}
+
+.contact-head p {
+  margin: 4px 0 0;
+}
+
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 6px;
+}
+
+.contact-action {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  min-width: 74px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contact-action span {
+  font-size: 1.2rem;
+}
+
+.contact-action:hover {
+  background: var(--hover);
+}
+
+.contact-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+
+.contact-section {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.contact-section h3 {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.contact-section p {
+  margin: 0;
+}
+
+.contact-values {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contact-values li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+
+.contact-values.social li {
+  align-items: center;
+}
+
+.contact-values.social li > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.social-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-weight: 700;
+}
+
+.social-icon.net-facebook,
+.import-icon.f { background: #1877f2; color: #fff; }
+.social-icon.net-linkedin,
+.import-icon.in { background: #0a66c2; color: #fff; }
+.social-icon.net-instagram { background: linear-gradient(45deg, #f58529, #dd2a7b, #8134af); color: #fff; }
+.social-icon.net-whatsapp { background: #25d366; color: #fff; }
+.social-icon.net-telegram { background: #229ed9; color: #fff; }
+.social-icon.net-x,
+.social-icon.net-threads,
+.social-icon.net-tiktok,
+.social-icon.net-github { background: #111; color: #fff; }
+.social-icon.net-youtube { background: #ff0000; color: #fff; }
+.import-icon.g { background: #fff; color: #4285f4; border: 1px solid var(--line); }
+
+.contact-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.contact-notes {
+  white-space: pre-wrap;
+}
+
+.contact-meta {
+  margin-top: 16px;
+}
+
+.contacts-dialog {
+  max-height: calc(100vh - 32px);
+}
+
+.contacts-dialog > form,
+.contacts-dialog > div {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.row.spread {
+  justify-content: space-between;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+fieldset.multi,
+fieldset.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+fieldset.multi legend,
+fieldset.choice legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+fieldset.multi > .btn {
+  align-self: flex-start;
+}
+
+.multi-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.multi-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.multi-row select {
+  flex: none;
+  width: 118px;
+}
+
+.multi-row input {
+  flex: 1;
+}
+
+.dialog label.check.format {
+  align-items: flex-start;
+}
+
+.dialog label.check.format span {
+  display: flex;
+  flex-direction: column;
+  font-weight: 400;
+}
+
+.import-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+  gap: 8px;
+}
+
+.import-source {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.import-source.active {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.import-source small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.import-icon {
+  display: grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-weight: 800;
+}
+
+.import-help {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.9rem;
+}
+
+.import-help ol,
+.import-help ul,
+.export-help ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.import-help p {
+  margin: 4px 0;
+}
+
+.import-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 22px 12px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  font-weight: 400 !important;
+  text-align: center;
+  cursor: pointer;
+}
+
+.import-drop.drop {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.import-sample,
+.dupe-group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-sample li,
+.dupe-group li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.import-sample li > span,
+.dupe-group li > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.import-sample small,
+.dupe-group small {
+  color: var(--muted);
+}
+
+.import-progress {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.import-progress progress {
+  flex: 1;
+}
+
+.export-help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.export-help {
+  font-size: 0.9rem;
+}
+
+.dupes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.dupe-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.dupe-group.merged {
+  opacity: 0.55;
+}
+
+@media (max-width: 860px) {
+  .contacts-layout {
+    grid-template-columns: minmax(0, 1fr);
+    height: calc(100vh - 170px);
+  }
+
+  .contacts-layout.has-detail .contacts-list,
+  .contacts-layout:not(.has-detail) .contact-detail {
+    display: none;
+  }
+
+  .contacts-list {
+    border-right: 0;
+  }
+
+  .contact-detail {
+    padding: 14px 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .multi-row select {
+    width: 96px;
+  }
+
+  .contact-action {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (hover: hover) {
+  .import-source:hover,
+  .import-drop:hover {
+    border-color: var(--brand);
+    background: var(--brand-tint);
+  }
+}

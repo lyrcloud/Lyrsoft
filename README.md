@@ -17,6 +17,13 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Calls** run on **Amazon Chime SDK**: joining creates the Chime meeting on first use and an attendee per person (about $0.0017 per attendee-minute). Mute, camera (front first; **Flip** switches between front and rear on phones), screen sharing, invite link and leave. The browser SDK is bundled into `lyrsoft/chime-sdk.js` by `scripts/build-chime-sdk.mjs` and only loads when someone joins.
 - **Recording** happens in the browser: it records the screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file to your downloads. Nothing is uploaded. It needs Chrome, Edge or Firefox on a computer; phone browsers can't capture the screen.
 
+## Contacts
+
+- **Contacts** (`/app/#/contacts`, `lyrsoft/contacts.js`, API in `api/work/contacts.mjs`): everyone's own private address book (up to 10,000 contacts): names, phones, emails, social profiles (WhatsApp, Facebook, Messenger, Instagram, X, LinkedIn, Telegram, TikTok, YouTube …), addresses, websites, birthday, labels, notes and favourites. Call, text, WhatsApp or email from a contact; search by name, number, email or label; filter by label or where contacts came from; select many to export, label or delete.
+- **Import:** this phone (the Contact Picker in Chrome on Android; elsewhere a .vcf from the phone's Contacts app), **Google** (straight from Google Contacts when `LYRSOFT_GOOGLE_CLIENT_ID` is set at build time, otherwise Google's vCard / CSV export), **Facebook / Messenger / Instagram** ("Download your information" JSON: friends, followers, uploaded contacts), **LinkedIn** (`Connections.csv`), Telegram (`result.json`), Outlook, iCloud, Yahoo, any vCard / CSV / JSON, and the people you work with in Lyrsoft. Files are read in the browser (`lyrsoft/contacts-formats.js`); people already in the book (same email or phone) get the new details added instead of a duplicate. **Merge duplicates** finds people sharing a phone, email or name.
+- **Export:** vCard 3.0 (phones, Google, iCloud, Outlook), Google CSV, Outlook CSV or a Lyrsoft JSON backup, downloaded or sent through the phone's share sheet; one contact can be shared as a .vcf. WhatsApp, Telegram and Meta's apps read the phone's contacts, so contacts reach them through the phone.
+- **Google import setup:** create an OAuth web client in Google Cloud with the People API enabled, add `https://lyrsoft.com` as an authorised JavaScript origin, and deploy with `LYRSOFT_GOOGLE_CLIENT_ID=<client id> npm run deploy`. The app asks only for read-only contacts access; the token stays in the browser.
+
 ## Accounts and admin console
 
 - **Profile** (`/app/#/profile`, `lyrsoft/account.js`): photo (the Google photo by default, or an upload the browser shrinks to a ≤ 45 KB JPEG, `lyrsoft/avatar.js`), name, verified email, mobile number and email settings. The role badge in the top bar opens the admin console. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.
@@ -30,7 +37,7 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 lyrsoft/            website (home.html), app (index.html, app.js, mail.js), sign-in callback
 lyrsoft/brand/      logo (SVG), favicons and web manifest, served at /brand/ (and /favicon.ico)
 src/auth.js         Cognito sign-in helpers: Google (Hosted UI) and email and password (src/cognito.js), copies of Lyrcloud's
-api/work/           work API Lambda: workspaces, boards, items, contact form, Lyrbot, mail routes
+api/work/           work API Lambda: workspaces, boards, items, contacts, chat and meetings, contact form, Lyrbot, mail routes
 api/mail/           mail model, store, routes and the SES inbound processor
 api/account/        roles.mjs: super admin / admin rules (copy of Lyrcloud's)
 infra/aws/          lyrsoft-work-api.yml (API, DynamoDB, SES) and lyrsoft-site.yml (S3 + CloudFront)

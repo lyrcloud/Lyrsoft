@@ -9,7 +9,7 @@
     "api": "node scripts/lyrsoft-dev-api.mjs",
     "build": "node scripts/build-lyrsoft.mjs",
     "deploy": "bash scripts/deploy-lyrsoft.sh",
-    "test": "node --test api/account/roles.test.mjs api/work/account.test.mjs api/work/collab-model.test.mjs api/work/model.test.mjs api/work/leads.test.mjs api/work/lyrbot.test.mjs api/mail/model.test.mjs"
+    "test": "node --test api/account/roles.test.mjs api/work/account.test.mjs api/work/collab-model.test.mjs api/work/model.test.mjs api/work/leads.test.mjs api/work/lyrbot.test.mjs api/mail/model.test.mjs api/work/contacts.test.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

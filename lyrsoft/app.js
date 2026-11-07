@@ -214,7 +214,12 @@ function sidebar() {
               <a href="#/w/${esc(ws.workspace.id)}/marketing"${route.view === 'marketing' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📣</span>Marketing</a>
               <a href="#/w/${esc(ws.workspace.id)}/team"${route.view === 'team' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">👥</span>Team &amp; settings</a>
             </nav>`
-          : ''
+          : workspaces.length
+            ? `<nav aria-label="Grow">
+                <p class="nav-label">Grow</p>
+                <a href="#/w/${esc(workspaces[0].id)}/marketing"><span class="nav-icon" aria-hidden="true">📣</span>Marketing</a>
+              </nav>`
+            : ''
       }
       ${state.me ? chat.sidebarLinks(route) : ''}
       ${mail.sidebarLinks(route)}

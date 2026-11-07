@@ -1,6 +1,6 @@
 // In-memory stand-in for @aws-sdk/client-dynamodb and @aws-sdk/lib-dynamodb, used only by the
 // local Lyrsoft dev API (scripts/lyrsoft-dev-api.mjs). It understands exactly the key conditions,
-// update and condition expressions that api/work/ and api/mail/ use, and throws on anything else.
+// update, condition and filter expressions that api/work/ and api/mail/ use, and throws on anything else.
 // Queries return items sorted by sort key and page with Limit/LastEvaluatedKey like DynamoDB.
 const tables = new Map();
 const table = (name) => {
@@ -30,7 +30,85 @@ function conditionalCheckFailed() {
   return error;
 }
 
-function query({ TableName, IndexName, KeyConditionExpression, ExpressionAttributeValues: v, ScanIndexForward = true, Limit, ExclusiveStartKey, Select }) {
+// Condition and filter expressions: comparisons (= <> < <= > >=), IN (…), attribute_exists /
+// attribute_not_exists, AND, OR, NOT and parentheses.
+function evaluate(expression, item, n = {}, v = {}) {
+  const tokens = expression.match(/\(|\)|,|<>|<=|>=|[=<>]|[#:]?[\w.]+/g) || [];
+  let i = 0;
+  const peek = () => tokens[i];
+  const take = (expected) => {
+    const token = tokens[i++];
+    if (expected && token !== expected) throw new Error(`fake-dynamodb: expected ${expected} in ${expression}`);
+    return token;
+  };
+  const operand = (token) => (token.startsWith(':') ? v[token] : item?.[n[token] || token]);
+  function primary() {
+    if (peek() === 'NOT') return take(), !primary();
+    if (peek() === '(') {
+      take('(');
+      const value = or();
+      take(')');
+      return value;
+    }
+    const token = take();
+    if (token === 'attribute_exists' || token === 'attribute_not_exists') {
+      take('(');
+      const name = take();
+      take(')');
+      const present = item?.[n[name] || name] !== undefined;
+      return token === 'attribute_exists' ? present : !present;
+    }
+    const left = operand(token);
+    const op = take();
+    if (op === 'IN') {
+      take('(');
+      const values = [];
+      while (peek() !== ')') {
+        values.push(operand(take()));
+        if (peek() === ',') take(',');
+      }
+      take(')');
+      return values.includes(left);
+    }
+    const right = operand(take());
+    if (op === '=') return left === right;
+    if (op === '<>') return left !== right;
+    if (left === undefined || right === undefined) return false;
+    return { '<': left < right, '<=': left <= right, '>': left > right, '>=': left >= right }[op];
+  }
+  function and() {
+    let value = primary();
+    while (peek() === 'AND') take(), (value = primary() && value);
+    return value;
+  }
+  function or() {
+    let value = and();
+    while (peek() === 'OR') take(), (value = and() || value);
+    return value;
+  }
+  const result = or();
+  if (i !== tokens.length) throw new Error(`fake-dynamodb: unsupported expression ${expression}`);
+  return result;
+}
+
+// Splits "a = :x, b = if_not_exists(b, :y)" on the commas between clauses only.
+function clausesOf(text) {
+  const out = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of text) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ',' && depth === 0) {
+      out.push(current.trim());
+      current = '';
+    } else current += ch;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
+}
+
+function query({ TableName, IndexName, KeyConditionExpression, FilterExpression, ExpressionAttributeNames, ExpressionAttributeValues: v, ScanIndexForward = true, Limit, ExclusiveStartKey, Select }) {
   const [hashKey, sortKey] = IndexName === 'GSI1' ? ['GSI1PK', 'GSI1SK'] : ['PK', 'SK'];
   let match;
   let items;
@@ -43,6 +121,7 @@ function query({ TableName, IndexName, KeyConditionExpression, ExpressionAttribu
   } else {
     throw new Error(`fake-dynamodb: unsupported KeyConditionExpression ${KeyConditionExpression}`);
   }
+  if (FilterExpression) items = items.filter((item) => evaluate(FilterExpression, item, ExpressionAttributeNames, v));
   items.sort((a, b) => String(a[sortKey]).localeCompare(String(b[sortKey])));
   if (!ScanIndexForward) items.reverse();
   if (Select === 'COUNT') return { Count: items.length };
@@ -51,36 +130,42 @@ function query({ TableName, IndexName, KeyConditionExpression, ExpressionAttribu
   return { Items: items.slice(start, end).map(clone), LastEvaluatedKey: end < items.length ? { offset: end } : undefined };
 }
 
-function update({ TableName, Key, UpdateExpression, ConditionExpression, ExpressionAttributeNames: n = {}, ExpressionAttributeValues: v = {} }) {
+function update({ TableName, Key, UpdateExpression, ConditionExpression, ExpressionAttributeNames: n = {}, ExpressionAttributeValues: v = {}, ReturnValues }) {
   const store = table(TableName);
   const existing = store.get(keyOf(Key));
-  if (ConditionExpression && !/^attribute_exists\(\w+\)$/.test(ConditionExpression)) {
-    throw new Error(`fake-dynamodb: unsupported ConditionExpression ${ConditionExpression}`);
-  }
-  if (ConditionExpression && !existing) throw conditionalCheckFailed();
-  const item = existing || { ...Key };
-  const sections = [...UpdateExpression.matchAll(/(SET|ADD) (.+?)(?= (?:SET|ADD) |$)/g)];
+  if (ConditionExpression && !evaluate(ConditionExpression, existing, n, v)) throw conditionalCheckFailed();
+  const before = clone(existing);
+  const item = existing ? clone(existing) : { ...Key };
+  const sections = [...UpdateExpression.matchAll(/(SET|ADD|REMOVE) (.+?)(?= (?:SET|ADD|REMOVE) |$)/g)];
   if (!sections.length || sections.map((m) => m[0]).join(' ') !== UpdateExpression) {
     throw new Error(`fake-dynamodb: unsupported UpdateExpression ${UpdateExpression}`);
   }
   for (const [, action, clauses] of sections) {
-    for (const clause of clauses.split(/,\s*/)) {
-      const [name, value] = action === 'SET' ? clause.split(/\s*=\s*/) : clause.split(/\s+/);
+    for (const clause of clausesOf(clauses)) {
+      if (action === 'REMOVE') {
+        delete item[n[clause] || clause];
+        continue;
+      }
+      const [name, value] = action === 'SET' ? clause.split(/\s*=\s*(?=.)/) : clause.split(/\s+/);
       const attribute = n[name] || name;
-      item[attribute] = action === 'SET' ? clone(v[value]) : (item[attribute] || 0) + v[value];
+      if (action === 'ADD') {
+        item[attribute] = (item[attribute] || 0) + v[value];
+        continue;
+      }
+      const ifNotExists = value.match(/^if_not_exists\(\s*([#\w]+)\s*,\s*(:\w+)\s*\)$/);
+      if (ifNotExists) item[attribute] = item[n[ifNotExists[1]] || ifNotExists[1]] ?? clone(v[ifNotExists[2]]);
+      else if (/^:\w+$/.test(value)) item[attribute] = clone(v[value]);
+      else throw new Error(`fake-dynamodb: unsupported SET ${clause}`);
     }
   }
   store.set(keyOf(Key), item);
-  return { Attributes: clone(item) };
+  return { Attributes: ReturnValues === 'UPDATED_OLD' || ReturnValues === 'ALL_OLD' ? before : clone(item) };
 }
 
 const handlers = {
   GetCommand: ({ TableName, Key }) => ({ Item: clone(table(TableName).get(keyOf(Key))) }),
   PutCommand: ({ TableName, Item, ConditionExpression }) => {
-    if (ConditionExpression && ConditionExpression !== 'attribute_not_exists(PK)') {
-      throw new Error(`fake-dynamodb: unsupported ConditionExpression ${ConditionExpression}`);
-    }
-    if (ConditionExpression && table(TableName).has(keyOf(Item))) throw conditionalCheckFailed();
+    if (ConditionExpression && !evaluate(ConditionExpression, table(TableName).get(keyOf(Item)))) throw conditionalCheckFailed();
     table(TableName).set(keyOf(Item), clone(Item));
     return {};
   },

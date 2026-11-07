@@ -16,6 +16,7 @@
 //   CONFIG      UPDATES            product update emails sent so far (newest first)
 //   RATE#sms#<sub> | RATE#sms#all  <day>   mobile codes texted (expires via TTL)
 //   CONTACTS#<sub> C#<id>          a contact in someone's address book (contacts.mjs)
+//   MKT#<ws> …, MKTC#<campaign> …   Lyrsoft Marketing: subscribers, campaigns, forms (marketing.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -25,7 +26,10 @@
 // Public routes: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
 // item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox),
 // POST /public/lyrbot, the site's help assistant (lyrbot.mjs), and GET|POST /public/unsubscribe,
-// the signed link in product update emails.
+// the signed link in product update emails. Lyrsoft Marketing adds /public/m/open|click|unsubscribe
+// (campaign tracking and unsubscribe links) and /public/subscribe (signup forms), served through
+// lyrsoft.com/public/*, and handles non-HTTP events: its own background sends, the one-minute tick
+// and SES bounce/complaint notifications (marketing.mjs).
 //
 // Accounts (account.mjs): GET /me creates or refreshes the caller's profile (a new one gets the
 // welcome email); PATCH /me/profile, POST /me/phone, POST /me/phone/verify and DELETE /me/phone edit
@@ -46,10 +50,11 @@ import { ChimeSDKMeetingsClient } from '@aws-sdk/client-chime-sdk-meetings';
 import { AdminGetUserCommand, CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { S3Client } from '@aws-sdk/client-s3';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
 import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import { emailTrusted, isStaff, providerFromUsername, roleFor, userUpdateError } from '../account/roles.mjs';
-import { buildRawEmail, canUseMailbox } from '../mail/model.mjs';
+import { buildRawEmail, canUseMailbox, mailDomains } from '../mail/model.mjs';
 import {
   adminProfile,
   checkCode,
@@ -76,6 +81,7 @@ import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { channelId, registerCollabRoutes } from './collab.mjs';
 import { registerContactRoutes } from './contacts.mjs';
+import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
 import {
   cleanLyrbotMessages,
@@ -118,6 +124,12 @@ const APP_SECRET_NAME = process.env.APP_SECRET_NAME;
 const MAIL_FROM = process.env.MAIL_FROM;
 const MAIL_REPLY_TO = process.env.MAIL_REPLY_TO;
 const USER_POOL_ID = process.env.USER_POOL_ID;
+// Lyrsoft Marketing: campaigns go out from MARKETING_FROM (unless staff pick another address on a mail
+// domain) through the MARKETING_CONFIG_SET configuration set, whose bounces and complaints come back via
+// SNS. Public links (tracking, unsubscribe, signup pages) use PUBLIC_BASE_URL, lyrsoft.com in production.
+const MARKETING_FROM = process.env.MARKETING_FROM || 'campaigns@lyrsoft.com';
+const MARKETING_CONFIG_SET = process.env.MARKETING_CONFIG_SET;
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || SITE_URL).replace(/\/$/, '');
 const s3 = new S3Client({});
 const ses = new SESv2Client({});
 const sns = new SNSClient({});
@@ -510,6 +522,16 @@ route('PATCH', '/admin/users/{userId}', async (me, { userId }, body) => {
   return { user: { ...adminProfile(next, role), lyrcloudAdmin } };
 });
 
+// Deletes a workspace's marketing data (subscribers, campaigns and their recipients, forms, settings).
+async function deleteMarketingData(ws) {
+  const rows = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `MKT#${ws}` }, ProjectionExpression: 'PK, SK' });
+  for (const row of rows.filter((r) => r.SK.startsWith('CAMP#'))) {
+    const recipients = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `MKTC#${row.SK.slice(5)}` }, ProjectionExpression: 'PK, SK' });
+    await deleteKeys(recipients);
+  }
+  await deleteKeys(rows);
+}
+
 const getUpdates = async () => (await get('CONFIG', 'UPDATES'))?.updates || [];
 const saveUpdates = (updates) => put({ PK: 'CONFIG', SK: 'UPDATES', updates: updates.slice(0, UPDATES_KEPT) });
 const apiBaseUrl = (event) => (event?.requestContext?.domainName ? `https://${event.requestContext.domainName}` : process.env.API_BASE_URL || 'http://localhost:8787');
@@ -636,6 +658,7 @@ route('DELETE', '/workspaces/{ws}', async (me, { ws }) => {
   // The workspace's team chat goes with it.
   const chat = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `CHAT#${channelId(ws)}` } });
   await deleteKeys(chat.map(({ PK, SK }) => ({ PK, SK })));
+  await deleteMarketingData(ws);
   return { deleted: true };
 });
 
@@ -815,6 +838,53 @@ registerCollabRoutes(route, {
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
 
+// One marketing email through SES, tagged so bounce and complaint events can find the workspace.
+async function sendMarketingEmail({ from, to, replyTo, subject, text, html, headers = [], tags = {} }) {
+  const raw = buildRawEmail({
+    from,
+    to: [to],
+    subject,
+    text,
+    html,
+    headers: [...(replyTo ? [['Reply-To', replyTo]] : []), ...headers],
+  });
+  const result = await ses.send(new SendEmailCommand({
+    FromEmailAddress: from.address,
+    Destination: { ToAddresses: [to] },
+    Content: { Raw: { Data: Buffer.from(raw) } },
+    ...(MARKETING_CONFIG_SET ? { ConfigurationSetName: MARKETING_CONFIG_SET } : {}),
+    EmailTags: Object.entries(tags).filter(([, v]) => v).map(([Name, Value]) => ({ Name, Value: String(Value).replace(/[^\w-]/g, '_') })),
+  }));
+  return result.MessageId;
+}
+
+const lambda = new LambdaClient({});
+// Hands a campaign's next batch to a fresh run: the Lambda invokes itself asynchronously; locally, a timer.
+async function continueSending(ws, campaignId) {
+  const task = { lyrsoftTask: 'marketing-send', ws, campaignId };
+  if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    setTimeout(() => marketing.handleTask(task).catch((error) => console.error('marketing send', error)), 50);
+    return;
+  }
+  await lambda.send(new InvokeCommand({ FunctionName: process.env.AWS_LAMBDA_FUNCTION_NAME, InvocationType: 'Event', Payload: Buffer.from(JSON.stringify(task)) }));
+}
+
+const marketing = registerMarketingRoutes(route, {
+  db: { get, put, del, queryAll, putMany, deleteKeys, update: (params) => ddb.send(new UpdateCommand({ TableName: TABLE, ...params })) },
+  HttpError,
+  openWorkspace,
+  isStaff,
+  now,
+  newId,
+  sendRaw: sendMarketingEmail,
+  getAppSecret: () => getAppSecret(),
+  defaultFrom: MARKETING_FROM,
+  mailDomains: mailDomains(),
+  publicBase: PUBLIC_BASE_URL,
+  siteUrl: SITE_URL,
+  continueSending,
+});
+
 // ------------------------------------------------------------------ public contact form
 
 // Counts one use of `key` in the current hour (or day) and returns the new count.
@@ -935,6 +1005,8 @@ function parseBody(event) {
   if (!event.body) return {};
   try {
     const raw = event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
+    // Signup forms embedded on other websites post ordinary HTML forms.
+    if (/application\/x-www-form-urlencoded/i.test(event.headers?.['content-type'] || '')) return Object.fromEntries(new URLSearchParams(raw));
     const body = JSON.parse(raw);
     return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
   } catch {
@@ -943,12 +1015,24 @@ function parseBody(event) {
 }
 
 export const handler = async (event) => {
+  if (marketing.isTask(event)) return marketing.handleTask(event);
   const method = event.requestContext?.http?.method;
   const path = event.requestContext?.http?.path || '';
   try {
     if (method === 'POST' && path === '/public/contact') return await submitContact(event);
     if (method === 'POST' && path === '/public/lyrbot') return await lyrbotChat(event);
     if ((method === 'GET' || method === 'POST') && path === '/public/unsubscribe') return await unsubscribe(event, method);
+    if (path.startsWith('/public/m/') || path === '/public/subscribe') {
+      const params = new URLSearchParams(event.rawQueryString || '');
+      if (method === 'GET' && path === '/public/m/open') return await marketing.publicOpen(params);
+      if (method === 'GET' && path === '/public/m/click') return await marketing.publicClick(params);
+      if ((method === 'GET' || method === 'POST') && path === '/public/m/unsubscribe') return await marketing.publicUnsubscribe(params, method);
+      if (method === 'GET' || method === 'POST') {
+        const body = method === 'POST' ? parseBody(event) : {};
+        if (body === null) throw new HttpError(400, 'Invalid form.');
+        return await marketing.publicSubscribe(event, params, method, body, event.requestContext?.http?.sourceIp || 'unknown');
+      }
+    }
     const me = await identify(event);
     for (const { method: m, re, keys, fn } of routes) {
       const match = m === method && path.match(re);

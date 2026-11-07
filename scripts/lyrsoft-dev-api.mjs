@@ -31,6 +31,7 @@ process.env.APP_SECRET ??= 'dev-secret';
 process.env.MAIL_FROM ??= 'Lyrsoft <no-reply@lyrsoft.com>';
 process.env.MAIL_REPLY_TO ??= 'hello@lyrsoft.com';
 process.env.SITE_URL ??= 'http://localhost:5174';
+process.env.PUBLIC_BASE_URL ??= `http://localhost:${process.env.PORT || 8787}`; // marketing links hit this API directly
 process.env.MAIL_DOMAINS ??= 'lyrsoft.com,lyrcloud.com,lyrtrip.com,lyrshop.com,lyrpay.com,mrshihab.com';
 const port = Number(process.env.PORT || 8787);
 
@@ -116,16 +117,17 @@ createServer(async (request, response) => {
     });
   }
   const token = (request.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const isPublic = (request.method === 'POST' && ['/public/contact', '/public/lyrbot'].includes(url.pathname)) || url.pathname === '/public/unsubscribe'; // AuthorizationType NONE in the template
+  const isPublic = (request.method === 'POST' && ['/public/contact', '/public/lyrbot'].includes(url.pathname)) || url.pathname === '/public/unsubscribe' ||
+    url.pathname.startsWith('/public/m/') || url.pathname === '/public/subscribe'; // AuthorizationType NONE in the template
   if (!isPublic && !token.startsWith('dev.')) return response.writeHead(401, { ...cors, 'content-type': 'application/json' }).end('{"message":"Unauthorized"}');
   const result = await handler({
     requestContext: {
       http: { method: request.method, path: url.pathname, sourceIp: request.socket.remoteAddress },
       authorizer: isPublic ? undefined : { jwt: { claims: { sub: `sub-${token.slice(4)}` } } },
     },
-    headers: { authorization: request.headers.authorization },
+    headers: { authorization: request.headers.authorization, 'content-type': request.headers['content-type'], accept: request.headers.accept },
     rawQueryString: url.search.slice(1),
     body: chunks.length ? Buffer.concat(chunks).toString('utf8') : undefined,
   });
-  response.writeHead(result.statusCode, { ...cors, ...result.headers }).end(result.body);
+  response.writeHead(result.statusCode, { ...cors, ...result.headers }).end(result.isBase64Encoded ? Buffer.from(result.body, 'base64') : result.body);
 }).listen(port, () => console.log(`Lyrsoft dev API on http://localhost:${port} (in-memory data)`));

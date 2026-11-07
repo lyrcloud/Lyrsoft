@@ -24,6 +24,18 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Export:** vCard 3.0 (phones, Google, iCloud, Outlook), Google CSV, Outlook CSV or a Lyrsoft JSON backup, downloaded or sent through the phone's share sheet; one contact can be shared as a .vcf. WhatsApp, Telegram and Meta's apps read the phone's contacts, so contacts reach them through the phone.
 - **Google import setup:** create an OAuth web client in Google Cloud with the People API enabled, add `https://lyrsoft.com` as an authorised JavaScript origin, and deploy with `LYRSOFT_GOOGLE_CLIENT_ID=<client id> npm run deploy`. The app asks only for read-only contacts access; the token stays in the browser.
 
+## Marketing
+
+**Lyrsoft Marketing** (`/app/#/w/<workspace>/marketing`, `lyrsoft/marketing.js`, API in `api/work/marketing.mjs`) gives every workspace email marketing:
+
+- **Audience:** subscribers with tags and a status (subscribed, unsubscribed, bounced, marked as spam), up to 50,000 per workspace. Add people one by one, paste a list, import a CSV / vCard / JSON file (Mailchimp, Google, Outlook, spreadsheets), bring in your Contacts or the workspace team, and export CSV. Imports never resubscribe someone who left.
+- **Signup forms:** each form has a hosted page (`https://lyrsoft.com/public/subscribe?w=…&f=…`) and HTML to paste into any website; new subscribers get the form's tags. Bots are caught by a hidden field, and signups are limited per IP and per form.
+- **Campaigns:** write the email with simple formatting (headings, bold, links, lists, buttons, images) and merge tags such as `{{first_name|there}}`, with a live desktop / phone preview drawn by `lyrsoft/marketing-email.js`, the same code the API sends with. Send a test, then send to everyone or to people with certain tags, now or at a scheduled time.
+- **Reports:** delivered, unique opens and clicks, clicks per link, unsubscribes, bounces and spam complaints, and each recipient's activity.
+- **Who can do what:** workspace members write drafts and manage subscribers; owners and admins change settings and send. Campaigns go out from `campaigns@lyrsoft.com` (stack parameter `MarketingFrom`) with the workspace's sender name and reply-to; Lyrsoft staff may send from any address on a mail domain. Every email has the workspace's postal address and a one-click unsubscribe link (`List-Unsubscribe`). A workspace sends up to 2,000 emails a day (40,000 for staff); the SES account allows 50,000 a day at 14 a second.
+- **How sending works:** starting a send snapshots the audience into recipient rows (`MKTC#<campaign>`), then the work API Lambda invokes itself to send about 12 emails a second, 20 seconds per run, until none are left. A one-minute EventBridge rule (`lyrsoft-marketing-tick`) starts scheduled campaigns and resumes stalled sends. Emails go through the SES configuration set `lyrsoft-marketing`, whose bounces and complaints arrive through the SNS topic `lyrsoft-marketing-events` and suppress those addresses.
+- **Links:** open pixels, click redirects (only to links in that campaign), unsubscribe and signup pages are signed with the `lyrsoft/app` secret and served at `https://lyrsoft.com/public/*`, which CloudFront forwards to the work API (`lyrsoft-site.yml`).
+
 ## Accounts and admin console
 
 - **Profile** (`/app/#/profile`, `lyrsoft/account.js`): photo (the Google photo by default, or an upload the browser shrinks to a ≤ 45 KB JPEG, `lyrsoft/avatar.js`), name, verified email, mobile number and email settings. The role badge in the top bar opens the admin console. Profiles are rows in the `lyrsoft-work` table (`PROFILE#<sub>`), created on first sign-in.
@@ -37,7 +49,7 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 lyrsoft/            website (home.html), app (index.html, app.js, mail.js), sign-in callback
 lyrsoft/brand/      logo (SVG), favicons and web manifest, served at /brand/ (and /favicon.ico)
 src/auth.js         Cognito sign-in helpers: Google (Hosted UI) and email and password (src/cognito.js), copies of Lyrcloud's
-api/work/           work API Lambda: workspaces, boards, items, contacts, chat and meetings, contact form, Lyrbot, mail routes
+api/work/           work API Lambda: workspaces, boards, items, contacts, marketing, chat and meetings, contact form, Lyrbot, mail routes
 api/mail/           mail model, store, routes and the SES inbound processor
 api/account/        roles.mjs: super admin / admin rules (copy of Lyrcloud's)
 infra/aws/          lyrsoft-work-api.yml (API, DynamoDB, SES) and lyrsoft-site.yml (S3 + CloudFront)

@@ -9,6 +9,9 @@ Parameters:
   CertificateArn:
     Type: String
     Description: Issued us-east-1 ACM certificate covering the domain and www.
+  ApiDomainName:
+    Type: String
+    Description: The work API's execute-api host. lyrsoft.com/public/* (marketing links and signup forms) is forwarded to it.
 
 Resources:
   SiteBucket:
@@ -85,6 +88,21 @@ Resources:
             OriginAccessControlId: !GetAtt OriginAccessControl.Id
             S3OriginConfig:
               OriginAccessIdentity: ''
+          - Id: api
+            DomainName: !Ref ApiDomainName
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        # Campaign tracking, unsubscribe and signup links: never cached, everything but Host forwarded.
+        CacheBehaviors:
+          - PathPattern: /public/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader
         DefaultCacheBehavior:
           TargetOriginId: site
           ViewerProtocolPolicy: redirect-to-https

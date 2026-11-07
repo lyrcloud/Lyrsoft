@@ -114,7 +114,7 @@ fi
 
 # 5. Hosting and app -------------------------------------------------------------------------
 aws cloudformation deploy --stack-name "$SITE_STACK" --template-file infra/aws/lyrsoft-site.yml \
-  --no-fail-on-empty-changeset --parameter-overrides "DomainName=$DOMAIN" "CertificateArn=$cert"
+  --no-fail-on-empty-changeset --parameter-overrides "DomainName=$DOMAIN" "CertificateArn=$cert" "ApiDomainName=${API_BASE#https://}"
 BUCKET="$(output "$SITE_STACK" BucketName)"
 DISTRIBUTION="$(output "$SITE_STACK" DistributionId)"
 CF_DOMAIN="$(output "$SITE_STACK" DistributionDomainName)"

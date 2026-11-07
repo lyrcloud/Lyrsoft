@@ -47,6 +47,14 @@ Parameters:
   MailReplyTo:
     Type: String
     Default: hello@lyrsoft.com
+  MarketingFrom:
+    Type: String
+    Default: campaigns@lyrsoft.com
+    Description: Address Lyrsoft Marketing campaigns are sent from (with each workspace's sender name). Its domain must be a verified SES identity.
+  PublicBaseUrl:
+    Type: String
+    Default: https://lyrsoft.com
+    Description: Where campaign tracking, unsubscribe and signup links point. lyrsoft.com forwards /public/* to this API (lyrsoft-site.yml).
 
 Conditions:
   HasAnthropicSecret: !Not [!Equals [!Ref AnthropicSecretName, '']]
@@ -162,6 +170,10 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref AppSecret
+              # Lyrsoft Marketing sends campaigns in the background by invoking itself.
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:lyrsoft-work-api'
               # Video meetings (Amazon Chime SDK): start a meeting, add people, end it.
               - Effect: Allow
                 Action: [chime:CreateMeeting, chime:GetMeeting, chime:DeleteMeeting, chime:CreateAttendee]
@@ -199,12 +211,96 @@ Resources:
           MAIL_FROM: !Ref MailFrom
           MAIL_REPLY_TO: !Ref MailReplyTo
           USER_POOL_ID: !Ref UserPoolId
+          MARKETING_FROM: !Ref MarketingFrom
+          MARKETING_CONFIG_SET: !Ref MarketingConfigSet
+          PUBLIC_BASE_URL: !Ref PublicBaseUrl
           SITE_URL: !Sub
             - 'https://${Origin}'
             - Origin: !Select [2, !Split ['/', !Select [0, !Ref AllowedOrigins]]]
       Code:
         S3Bucket: !Ref ArtifactsBucketName
         S3Key: !Ref LambdaCodeS3Key
+
+  # ---------------------------------------------------------------- Lyrsoft Marketing
+
+  # Campaign emails go through this configuration set; SES publishes their bounces and complaints to
+  # an SNS topic that the work API Lambda subscribes to, and it suppresses those addresses.
+  MarketingConfigSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: lyrsoft-marketing
+      ReputationOptions:
+        ReputationMetricsEnabled: true
+      SendingOptions:
+        SendingEnabled: true
+
+  MarketingEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: lyrsoft-marketing-events
+
+  MarketingEventsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref MarketingEventsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref MarketingEventsTopic
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+
+  MarketingEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    DependsOn: MarketingEventsTopicPolicy
+    Properties:
+      ConfigurationSetName: !Ref MarketingConfigSet
+      EventDestination:
+        Name: bounces-and-complaints
+        Enabled: true
+        MatchingEventTypes: [bounce, complaint]
+        SnsDestination:
+          TopicARN: !Ref MarketingEventsTopic
+
+  MarketingEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref MarketingEventsTopic
+      Protocol: lambda
+      Endpoint: !GetAtt WorkFunction.Arn
+
+  MarketingEventsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WorkFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref MarketingEventsTopic
+
+  # Every minute: start scheduled campaigns and resume sends that stalled.
+  MarketingTickRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: lyrsoft-marketing-tick
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: work-api
+          Arn: !GetAtt WorkFunction.Arn
+          Input: '{"lyrsoftTask":"marketing-tick"}'
+
+  MarketingTickInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WorkFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MarketingTickRule.Arn
 
   # ---------------------------------------------------------------- inbound mail
 
@@ -447,9 +543,59 @@ Resources:
       Target: !Sub 'integrations/${LambdaIntegration}'
       AuthorizationType: NONE
 
+  # Lyrsoft Marketing: campaign tracking and unsubscribe links, and signup forms (served at
+  # lyrsoft.com/public/* through CloudFront).
+  MarketingOpenRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /public/m/open'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  MarketingClickRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /public/m/click'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  MarketingUnsubscribeGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /public/m/unsubscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  MarketingUnsubscribePostRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/m/unsubscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  SubscribeGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /public/subscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
+  SubscribePostRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/subscribe'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
   Stage:
     Type: AWS::ApiGatewayV2::Stage
-    DependsOn: [ContactRoute, LyrbotRoute, UnsubscribeGetRoute, UnsubscribePostRoute]
+    DependsOn: [ContactRoute, LyrbotRoute, UnsubscribeGetRoute, UnsubscribePostRoute, MarketingOpenRoute, MarketingClickRoute, MarketingUnsubscribeGetRoute, MarketingUnsubscribePostRoute, SubscribeGetRoute, SubscribePostRoute]
     Properties:
       ApiId: !Ref HttpApi
       StageName: '$default'
@@ -468,6 +614,24 @@ Resources:
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
         'POST /public/unsubscribe':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+        'GET /public/m/open':
+          ThrottlingBurstLimit: 200
+          ThrottlingRateLimit: 100
+        'GET /public/m/click':
+          ThrottlingBurstLimit: 200
+          ThrottlingRateLimit: 100
+        'GET /public/m/unsubscribe':
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        'POST /public/m/unsubscribe':
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        'GET /public/subscribe':
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        'POST /public/subscribe':
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
 

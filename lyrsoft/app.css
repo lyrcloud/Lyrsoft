@@ -4161,3 +4161,561 @@ fieldset.multi > .btn {
     background: var(--brand-tint);
   }
 }
+
+/* ------------------------------------------------------------ marketing (marketing.js) */
+
+.mkt-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.mkt-tabs a {
+  padding: 7px 14px;
+}
+
+.mkt-page .spacer,
+.mkt-editor-head .spacer,
+.mkt-send-bar .spacer,
+.mkt-dialog .spacer {
+  flex: 1;
+}
+
+.mkt-h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+.mkt-page .panel-head.spread,
+.mkt-section-head {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.mkt-section-head p {
+  margin: 0;
+}
+
+.mkt-page .stat small {
+  font-size: 0.8rem;
+}
+
+.mkt-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mkt-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mkt-steps li span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.mkt-steps li.done a {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.mkt-steps li.done span {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.mkt-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.mkt-tag-list .chip {
+  text-decoration: none;
+}
+
+.mkt-table .num,
+.mkt-page .data-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mkt-camp-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.mkt-camp-link:hover b {
+  color: var(--brand-strong);
+}
+
+.mkt-status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.mkt-status-scheduled {
+  background: color-mix(in srgb, #579bfc 18%, transparent);
+  color: #2f6fd1;
+}
+
+.mkt-status-sending {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+}
+
+.mkt-status-sent,
+.mkt-sub-subscribed {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+}
+
+.mkt-status-cancelled,
+.mkt-sub-bounced,
+.mkt-sub-complained {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.mkt-empty {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.mkt-empty-icon {
+  font-size: 2.4rem;
+}
+
+.mkt-empty-row {
+  padding: 28px 12px !important;
+  text-align: center !important;
+}
+
+/* editor */
+
+.mkt-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.mkt-name {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.mkt-name:hover,
+.mkt-name:focus {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.mkt-title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.mkt-report-meta {
+  margin: -6px 0 14px;
+}
+
+.mkt-editor,
+.mkt-report {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mkt-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mkt-compose > label,
+.mkt-settings label,
+.mkt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.mkt-audience {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.mkt-audience legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.mkt-audience .check {
+  font-weight: 400;
+}
+
+.mkt-tag-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 26px;
+}
+
+.mkt-tag-picks[hidden] {
+  display: none;
+}
+
+.chip-check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.chip-check:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.mkt-aud-size {
+  margin: 0;
+}
+
+.mkt-body-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: -6px;
+  font-weight: 600;
+}
+
+.mkt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.mkt-toolbar .icon-btn {
+  min-width: 32px;
+  font-size: 0.9rem;
+}
+
+.mkt-body {
+  width: 100%;
+  min-height: 340px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.mkt-help summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mkt-help code,
+.mkt-dialog code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--hover);
+}
+
+.mkt-preview-panel {
+  position: sticky;
+  top: 12px;
+}
+
+.small-seg button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.small-seg button[aria-pressed='true'] {
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+}
+
+.mkt-inbox-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.mkt-preview-pre {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.mkt-frame-wrap {
+  overflow: hidden;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f4fa;
+  transition: max-width 0.2s;
+}
+
+.mkt-frame-wrap.desktop {
+  max-width: 100%;
+}
+
+.mkt-frame-wrap.mobile {
+  max-width: 375px;
+}
+
+.mkt-frame {
+  display: block;
+  width: 100%;
+  height: 640px;
+  border: 0;
+}
+
+.mkt-send-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.mkt-note {
+  margin-top: 0;
+}
+
+.mkt-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mkt-bar {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--hover);
+}
+
+.mkt-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 0.4s;
+}
+
+.mkt-url {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
+/* audience */
+
+.mkt-audience-tools,
+.mkt-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mkt-bulk {
+  min-height: 36px;
+  margin: 12px 0 4px;
+}
+
+.mkt-search {
+  flex: 1 1 220px;
+  max-width: 340px;
+}
+
+.mkt-chip {
+  display: inline-block;
+  margin: 1px 0;
+  cursor: default;
+}
+
+.mkt-sub-email {
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+
+.mkt-sub-rows td:nth-child(2) {
+  min-width: 190px;
+}
+
+/* forms and settings */
+
+.mkt-form-card .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mkt-copy {
+  margin-top: 12px;
+}
+
+.mkt-copy input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.mkt-copy textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.mkt-settings form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.mkt-settings h2 {
+  margin: 6px 0 0;
+}
+
+.mkt-color {
+  width: 52px;
+  height: 36px;
+  padding: 2px;
+}
+
+.mkt-settings .row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mkt-dialog .check {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  font-weight: 400;
+}
+
+.mkt-dialog [hidden] {
+  display: none;
+}
+
+.mkt-import-tabs {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.mkt-dialog textarea {
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .mkt-editor,
+  .mkt-report {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mkt-preview-panel {
+    position: static;
+  }
+
+  .mkt-frame {
+    height: 560px;
+  }
+}
+
+@media (max-width: 560px) {
+  .mkt-tabs {
+    display: flex;
+  }
+
+  .mkt-tabs a {
+    flex: 1 1 auto;
+    padding: 6px 8px;
+    text-align: center;
+  }
+
+  .mkt-send-bar .btn {
+    flex: 1 1 auto;
+  }
+
+  .mkt-name {
+    font-size: 1.15rem;
+  }
+
+  /* Phones: subscriber, tags and status only. */
+  .mkt-sub-table th:nth-child(n + 5),
+  .mkt-sub-table td:nth-child(n + 5) {
+    display: none;
+  }
+
+  .mkt-sub-rows td:nth-child(2) {
+    min-width: 0;
+    max-width: 52vw;
+  }
+}

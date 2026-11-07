@@ -90,7 +90,8 @@ export async function passwordSignIn(email, password) {
 // sends the user there after sign-in.
 const IDENTITY_PROVIDERS = { google: 'GoogleOIDC', github: 'GitHubBridge' };
 
-export async function redirectToLogin(returnTo = '/dash/', provider) {
+// Apps (the Lyr Chat phone app) pass their own `redirectUri` and `open` the page in the phone's browser.
+export async function redirectToLogin(returnTo = '/dash/', provider, { redirectUri = REDIRECT_URI, open = (href) => (location.href = href) } = {}) {
   sessionStorage.setItem(RETURN_KEY, returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/dash/');
   const verifier = randomString(32);
   const challenge = base64url(await sha256(verifier));
@@ -99,15 +100,15 @@ export async function redirectToLogin(returnTo = '/dash/', provider) {
   const url = new URL(`https://${COGNITO_DOMAIN}/oauth2/authorize`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', CLIENT_ID);
-  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('scope', 'openid email profile');
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
   if (IDENTITY_PROVIDERS[provider]) url.searchParams.set('identity_provider', IDENTITY_PROVIDERS[provider]);
-  location.href = url.toString();
+  return open(url.toString());
 }
 
-export async function exchangeCodeForTokens(code) {
+export async function exchangeCodeForTokens(code, redirectUri = REDIRECT_URI) {
   const verifier = sessionStorage.getItem(VERIFIER_KEY);
   sessionStorage.removeItem(VERIFIER_KEY);
   if (!verifier) throw new Error('missing_pkce_verifier');
@@ -116,7 +117,7 @@ export async function exchangeCodeForTokens(code) {
     grant_type: 'authorization_code',
     client_id: CLIENT_ID,
     code,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri,
     code_verifier: verifier,
   });
 

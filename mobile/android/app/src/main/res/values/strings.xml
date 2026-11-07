@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lyr Chat</string>
+    <string name="title_activity_main">Lyr Chat</string>
+    <string name="package_name">com.lyrsoft.lyrchat</string>
+    <string name="custom_url_scheme">com.lyrsoft.lyrchat</string>
+</resources>

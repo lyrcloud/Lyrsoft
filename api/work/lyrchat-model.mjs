@@ -36,7 +36,8 @@ export const canCall = (meta, email, blocked) => !blocked && requestState(meta, 
 // Who to hide from whom: { email, alias } when `viewer` mustn't see the other member's address.
 export function maskFor(meta, viewer) {
   const r = meta?.request;
-  if (!r?.masked || r.status === 'accepted' || r.from !== viewer) return null;
+  // Support chats (from Lyrbot on the Lyr sites) keep the support account's email hidden for good.
+  if (!r?.masked || r.from !== viewer || (r.status === 'accepted' && !r.support)) return null;
   return { email: r.to, alias: `peer.${meta.conv || 'dm'}` };
 }
 
@@ -45,6 +46,11 @@ export function maskJson(value, mask) {
   if (!mask) return value;
   return JSON.parse(JSON.stringify(value).split(mask.email).join(mask.alias));
 }
+
+// Lyrbot on Lyrcloud, Lyrpay, Lyrshop, Lyrtrip, lyrsoft.com and mrshihab.com links to
+// lyrsoft.com/chat/#/new?to=support&site=<Site>: a chat with the support account, titled for that site.
+export const SUPPORT_SITES = ['Lyrsoft', 'Lyrcloud', 'Lyrpay', 'Lyrshop', 'Lyrtrip', 'Lyr Chat', 'mrshihab.com'];
+export const supportSite = (site) => SUPPORT_SITES.find((s) => s.toLowerCase() === String(site || '').trim().toLowerCase()) || 'Lyrsoft';
 
 // ------------------------------------------------------------------ calls
 //
@@ -223,4 +229,33 @@ export function matchAddressBook(contacts, profiles, me, { phones = true } = {})
     if (found) matches.push(found);
   }
   return { matches, phonesChecked };
+}
+
+// ------------------------------------------------------------------ native push (the Lyr Chat phone app)
+//
+// The Android and iOS apps get pushes through Firebase Cloud Messaging (HTTP v1). The same payloads as
+// Web Push become FCM messages: a notification people see (messages, calls, missed calls) plus data the
+// app uses when it's tapped. A call's "it stopped ringing" is data only.
+
+export const cleanNativeToken = (token) => {
+  const t = String(token || '').trim();
+  if (!/^[\w:.-]{20,4096}$/.test(t)) throw new Error('That isn’t a device token.');
+  return t;
+};
+
+export function fcmMessage(token, p, { ttl = 3600, urgency = 'normal' } = {}) {
+  const call = p.type === 'call';
+  const data = Object.fromEntries(Object.entries({ type: p.type, url: p.url, conv: p.conv, callId: p.callId, tag: p.tag, video: p.video, missed: p.missed })
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => [k, String(v)]));
+  const message = { token, data, android: { priority: urgency === 'high' ? 'HIGH' : 'NORMAL', ttl: `${Math.max(0, Math.round(ttl))}s` } };
+  const visible = p.title && (p.type !== 'call-end' || p.missed);
+  if (visible) {
+    message.notification = { title: String(p.title).slice(0, 200), body: String(p.body || '').slice(0, 500) };
+    message.android.notification = { tag: p.tag || undefined, channel_id: call ? 'calls' : 'messages', default_sound: true, ...(call ? { visibility: 'PUBLIC', notification_priority: 'PRIORITY_MAX' } : {}) };
+    message.apns = { headers: { 'apns-priority': urgency === 'high' ? '10' : '5' }, payload: { aps: { sound: 'default', 'thread-id': p.tag || 'lyrchat' } } };
+  } else {
+    message.apns = { headers: { 'apns-priority': '5', 'apns-push-type': 'background' }, payload: { aps: { 'content-available': 1 } } };
+  }
+  return { message };
 }

@@ -76,12 +76,19 @@ echo "Mail DNS records (Cloudflare, Proxy status = DNS only). Already-present re
 cat "$dns"
 
 # 3. Sign-in callback URLs -------------------------------------------------------------------
+# The Lyr Chat phone app signs in with Google in the phone's browser and comes back on its own URL scheme.
+APP_CALLBACK="com.lyrsoft.lyrchat://signin"
 callbacks="$(param "$COGNITO_STACK" CallbackUrls)"
-if [[ ",$callbacks," != *",https://$DOMAIN/callback.html,"* ]]; then
+if [[ ",$callbacks," != *",https://$DOMAIN/callback.html,"* || ",$callbacks," != *",$APP_CALLBACK,"* ]]; then
   logouts="$(param "$COGNITO_STACK" LogoutUrls)"
   params="$build/cognito-params.json"
-  CALLBACKS="$callbacks,https://$DOMAIN/callback.html,http://localhost:5174/callback.html" \
-  LOGOUTS="$logouts,https://$DOMAIN/index.html,http://localhost:5174/index.html" \
+  wanted="$callbacks"
+  for url in "https://$DOMAIN/callback.html" "http://localhost:5174/callback.html" "$APP_CALLBACK"; do
+    [[ ",$wanted," == *",$url,"* ]] || wanted="$wanted,$url"
+  done
+  [[ ",$logouts," == *",https://$DOMAIN/index.html,"* ]] || logouts="$logouts,https://$DOMAIN/index.html,http://localhost:5174/index.html"
+  CALLBACKS="$wanted" \
+  LOGOUTS="$logouts" \
   KEEP="$(aws cloudformation describe-stacks --stack-name "$COGNITO_STACK" --query 'Stacks[0].Parameters[].ParameterKey' --output text)" \
     python3 -c '
 import json, os
@@ -92,7 +99,7 @@ print(json.dumps(params))' >"$params"
   aws cloudformation update-stack --stack-name "$COGNITO_STACK" --use-previous-template \
     --capabilities CAPABILITY_IAM --parameters "file://$params" >/dev/null
   aws cloudformation wait stack-update-complete --stack-name "$COGNITO_STACK"
-  echo "Added https://$DOMAIN sign-in URLs to the Cognito app client"
+  echo "Added lyrsoft.com and Lyr Chat app sign-in URLs to the Cognito app client"
 fi
 
 # 4. Certificate -----------------------------------------------------------------------------
@@ -125,6 +132,7 @@ aws s3 sync dist-lyrsoft/brand/ "s3://$BUCKET/brand/" --cache-control "public,ma
 aws s3 cp dist-lyrsoft/favicon.ico "s3://$BUCKET/favicon.ico" --cache-control "public,max-age=86400" --content-type "image/x-icon"
 aws s3 sync dist-lyrsoft/ "s3://$BUCKET/" --exclude "*" --include "*.html" \
   --cache-control "public,max-age=0,must-revalidate" --content-type "text/html; charset=utf-8"
+aws s3 cp dist-lyrsoft/lyrchat-widget.js "s3://$BUCKET/lyrchat-widget.js" --cache-control "public,max-age=3600" --content-type "text/javascript; charset=utf-8"
 aws s3 cp dist-lyrsoft/chat/sw.js "s3://$BUCKET/chat/sw.js" --cache-control "public,max-age=0,must-revalidate" --content-type "text/javascript; charset=utf-8"
 aws s3 cp dist-lyrsoft/brand/lyrchat.webmanifest "s3://$BUCKET/brand/lyrchat.webmanifest" --cache-control "public,max-age=3600" --content-type "application/manifest+json"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" >/dev/null

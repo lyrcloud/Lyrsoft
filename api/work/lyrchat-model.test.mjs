@@ -145,3 +145,52 @@ test('address book: matches by email, then by verified number; never yourself', 
   assert.deepEqual(matchAddressBook(contacts, profiles, 'me@x.com', { phones: false }).matches.map((m) => m.id), ['c1']);
   assert.notEqual(bookVersion(contacts), bookVersion([...contacts, { id: 'c6', updatedAt: '2026-11-07' }]));
 });
+
+test('FCM messages for the phone apps', async () => {
+  const { fcmMessage, cleanNativeToken } = await import('./lyrchat-model.mjs');
+  const call = fcmMessage('tok', { type: 'call', title: 'Incoming voice call', body: 'Ada', tag: 'call-1', callId: 'c1', url: '/chat/#/call/c1', video: false, token: 'secret', email: 'b@y.com' }, { ttl: 45, urgency: 'high' }).message;
+  assert.equal(call.android.priority, 'HIGH');
+  assert.equal(call.android.ttl, '45s');
+  assert.equal(call.android.notification.channel_id, 'calls');
+  assert.deepEqual(call.data, { type: 'call', url: '/chat/#/call/c1', callId: 'c1', tag: 'call-1', video: 'false' });
+  const end = fcmMessage('tok', { type: 'call-end', callId: 'c1', tag: 'call-1' }).message;
+  assert.equal(end.notification, undefined);
+  assert.ok(fcmMessage('tok', { type: 'call-end', missed: true, title: 'Missed voice call', tag: 'call-1' }).message.notification);
+  assert.equal(fcmMessage('tok', { type: 'message', title: 'Ada', body: 'Hi', tag: 'conv-x' }).message.android.notification.channel_id, 'messages');
+  assert.throws(() => cleanNativeToken('x'), /device token/);
+});
+
+test('push: phone apps get FCM, browsers Web Push; gone app tokens are removed', async () => {
+  const { generateKeyPairSync, createVerify } = await import('node:crypto');
+  const { createPush } = await import('./push.mjs');
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const account = { project_id: 'lyr-test', client_email: 'push@lyr-test.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
+  const rows = new Map();
+  const db = {
+    put: async (item) => rows.set(`${item.PK}|${item.SK}`, item),
+    del: async (pk, sk) => rows.delete(`${pk}|${sk}`),
+    queryAll: async ({ ExpressionAttributeValues: v }) => [...rows.values()].filter((r) => r.PK === v[':pk']),
+  };
+  const calls = [];
+  const fetchFn = async (url, init) => {
+    calls.push({ url, init });
+    if (url.includes('oauth2')) {
+      const assertion = new URLSearchParams(init.body).get('assertion');
+      const [h, c, sig] = assertion.split('.');
+      assert.ok(createVerify('RSA-SHA256').update(`${h}.${c}`).verify(publicKey, sig, 'base64url'));
+      return { ok: true, json: async () => ({ access_token: 'ya29.test', expires_in: 3600 }) };
+    }
+    const body = JSON.parse(init.body);
+    if (body.message.token === 'gone-token-000000000000') return { ok: false, status: 404, text: async () => 'UNREGISTERED' };
+    return { ok: true };
+  };
+  const push = createPush({ db, getSecret: async () => 'secret', now: () => '2026-11-07T00:00:00Z', getFcmAccount: async () => account, fetchFn });
+  await push.subscribeNative('b@y.com', 'good-token-000000000000', 'android');
+  await push.subscribeNative('b@y.com', 'gone-token-000000000000', 'android');
+  const sent = await push.send(['b@y.com'], { type: 'message', title: 'Ada', body: 'Hi', tag: 'conv-1', url: '/chat/' });
+  assert.equal(sent, 1);
+  assert.equal(calls.filter((c) => c.url.includes('oauth2')).length, 1);
+  assert.match(calls.find((c) => c.url.includes('fcm.googleapis.com')).url, /projects\/lyr-test\/messages:send/);
+  assert.equal([...rows.keys()].length, 1);
+  assert.equal(await push.nativeReady(), true);
+});

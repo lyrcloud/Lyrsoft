@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Lyr Chat</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f5fb; color: #161a2e; font-family: system-ui, -apple-system, Roboto, sans-serif; text-align: center; }
+      .icon { display: inline-grid; place-items: center; width: 72px; height: 72px; border-radius: 22px; background: linear-gradient(135deg, #6247ea, #8b5cf6); color: #fff; font-size: 34px; }
+      h1 { margin: 18px 0 6px; font-size: 22px; }
+      p { margin: 0 24px 22px; color: #5f6680; }
+      button { padding: 12px 22px; border: 0; border-radius: 12px; background: #6247ea; color: #fff; font: inherit; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="icon" aria-hidden="true">💬</span>
+      <h1>You’re offline</h1>
+      <p>Lyr Chat needs an internet connection for messages and calls.</p>
+      <button onclick="location.replace('https://lyrsoft.com/chat/')">Try again</button>
+    </main>
+  </body>
+</html>

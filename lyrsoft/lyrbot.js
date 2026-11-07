@@ -89,7 +89,7 @@ import { WORK_API_BASE } from './config.js';
         <span>Prefer a person?</span>
         <a class="lyrbot-whatsapp" href="${WHATSAPP_URL}" target="_blank" rel="noopener">${WHATSAPP_ICON} WhatsApp ${WHATSAPP_LABEL}</a>
         <a class="lyrbot-email" href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>
-        <a class="lyrbot-lyrchat" href="/chat/" target="_blank" rel="noopener">💬 Lyr Chat</a>
+        <a class="lyrbot-lyrchat" href="/chat/#/new?to=support&site=Lyrsoft" target="_blank" rel="noopener">💬 Lyr Chat</a>
       </div>
     </section>`;
   document.body.appendChild(root);

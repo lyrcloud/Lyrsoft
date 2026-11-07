@@ -12,7 +12,7 @@
 // Conversations are ConversationView (conversation.js); calls use the meeting call room (meet.js) on
 // Amazon Chime. Calls ring through GET /calls/ringing while the app is open, and by Web Push
 // (lyrchat-sw.js, served as /chat/sw.js) when it isn't.
-import { authFetch, getTokens, logout } from './auth.js';
+import { authFetch, clearTokens, exchangeCodeForTokens, getTokens, logout, redirectToLogin } from './auth.js';
 import { avatarHtml } from './avatar.js';
 import { WORK_API_BASE } from './config.js';
 import { ConversationView } from './conversation.js';
@@ -328,6 +328,8 @@ async function pollRinging() {
     }
     if (ringing && S.incoming?.id !== ringing.id) {
       S.incoming = ringing;
+      // Inside Lyrsoft Work, bring Lyr Chat into view.
+      if (window.parent !== window) window.parent.postMessage({ type: 'lyrchat-ring' }, location.origin);
       ringer.ring();
       renderRing();
     }
@@ -397,6 +399,66 @@ async function openDm(target) {
   }
 }
 
+// ------------------------------------------------------------------ the phone app (Capacitor, mobile/)
+// The Android (and later iOS) app loads this page. Google won't sign in inside an app's web view, so
+// Google sign-in opens in the phone's browser and comes back on com.lyrsoft.lyrchat://signin with a
+// code that only this app (holding the PKCE verifier) can exchange. Push uses Firebase Cloud Messaging
+// once the app was built with Firebase (LyrApp.info().firebase); until then calls ring while it's open.
+
+const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor.Plugins : null;
+const APP_REDIRECT = 'com.lyrsoft.lyrchat://signin';
+
+if (Native?.Browser && Native?.App) {
+  window.lyrNativeSignIn = () => redirectToLogin('/chat/', 'google', { redirectUri: APP_REDIRECT, open: (url) => Native.Browser.open({ url, presentationStyle: 'popover' }) });
+  Native.App.addListener('appUrlOpen', async ({ url }) => {
+    if (!String(url).startsWith(APP_REDIRECT)) return;
+    Native.Browser.close().catch(() => {});
+    const code = new URL(url).searchParams.get('code');
+    if (!code) return toast('Sign-in was cancelled.');
+    try {
+      await exchangeCodeForTokens(code, APP_REDIRECT);
+      keepTokens();
+      location.replace('/chat/');
+    } catch {
+      toast('Google sign-in didn’t finish. Please try again.');
+    }
+  });
+}
+
+let nativeToken = null;
+async function enableNativePush(ask) {
+  const P = Native?.PushNotifications;
+  const info = await Native?.LyrApp?.info?.().catch(() => null);
+  if (!P || !info?.firebase) {
+    S.push = 'native-later';
+    return;
+  }
+  let { receive } = await P.checkPermissions();
+  if (receive === 'prompt' || receive === 'prompt-with-rationale') receive = ask || !nativeToken ? (await P.requestPermissions()).receive : receive;
+  S.push = receive === 'granted' ? 'granted' : receive === 'denied' ? 'denied' : 'default';
+  if (receive !== 'granted') return;
+  await P.createChannel?.({ id: 'calls', name: 'Calls', description: 'Incoming voice and video calls', importance: 5, visibility: 1, vibration: true, sound: 'default' }).catch(() => {});
+  await P.createChannel?.({ id: 'messages', name: 'Messages', description: 'New messages', importance: 4, visibility: 0, vibration: true }).catch(() => {});
+  if (!enableNativePush.listening) {
+    enableNativePush.listening = true;
+    P.addListener('registration', async ({ value }) => {
+      nativeToken = value;
+      await api('POST', '/push/native', { token: value, platform: window.Capacitor.getPlatform() }).catch(() => {});
+    });
+    // A push while the app is open: ring or refresh straight away.
+    P.addListener('pushNotificationReceived', (n) => {
+      const data = n.data || {};
+      if (data.type === 'call' || data.type === 'call-end') pollRinging();
+      if (data.type === 'message') refreshList();
+    });
+    P.addListener('pushNotificationActionPerformed', ({ notification }) => {
+      const url = notification?.data?.url;
+      if (url) location.hash = new URL(url, location.origin).hash;
+    });
+  }
+  await P.register();
+}
+
 // ------------------------------------------------------------------ push notifications
 
 const b64ToBytes = (b64) => {
@@ -414,6 +476,7 @@ async function swRegistration() {
 }
 
 async function enablePush(ask) {
+  if (Native) return enableNativePush(ask);
   if (!('PushManager' in window) || !('Notification' in window)) {
     S.push = 'unsupported';
     return;
@@ -446,6 +509,12 @@ async function enablePush(ask) {
 }
 
 async function disablePush() {
+  if (Native) {
+    if (nativeToken) await api('POST', '/push/unsubscribe', { token: nativeToken }).catch(() => {});
+    await Native.PushNotifications?.unregister?.().catch(() => {});
+    S.push = 'off';
+    return;
+  }
   const reg = await swRegistration();
   const sub = await reg?.pushManager.getSubscription();
   if (sub) {
@@ -527,8 +596,8 @@ function chatsListHtml() {
     .filter((c) => !q || (c.title || '').toLowerCase().includes(q) || (c.lastSnippet || '').toLowerCase().includes(q))
     .sort((a, b) => String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || '')));
   const requests = S.list.requestCount ? `<a class="lc-row lc-requests" href="#/requests"><span class="avatar lc-av group" aria-hidden="true">✉</span><span class="lc-row-main"><b>Message requests</b><small>${S.list.requestCount} ${S.list.requestCount === 1 ? 'person wants' : 'people want'} to chat with you</small></span><span class="lc-row-side"><b class="lc-badge">${S.list.requestCount}</b></span></a>` : '';
-  const pushHint = S.push === 'default' || (isIos() && !standalone() && S.push === 'unsupported')
-    ? `<div class="lc-hint">${isIos() && !standalone() ? '📲 To get calls and messages when the app is closed, tap <b>Share → Add to Home Screen</b>, then open Lyr Chat from there.' : `🔔 Get calls and messages even when the app is closed. <button class="btn small primary" data-act="push-on">Turn on</button>`}</div>`
+  const pushHint = S.push === 'default' || (!Native && isIos() && !standalone() && S.push === 'unsupported')
+    ? `<div class="lc-hint">${!Native && isIos() && !standalone() ? '📲 To get calls and messages when the app is closed, tap <b>Share → Add to Home Screen</b>, then open Lyr Chat from there.' : `🔔 Get calls and messages even when the app is closed. <button class="btn small primary" data-act="push-on">Turn on</button>`}</div>`
     : '';
   const onChat = S.matches.size && rows.length < 3 && !q
     ? `<a class="lc-row lc-requests" href="#/contacts"><span class="avatar lc-av group" aria-hidden="true">👤</span><span class="lc-row-main"><b>${S.matches.size} of your contacts ${S.matches.size === 1 ? 'is' : 'are'} on Lyr Chat</b><small>Say hello or give them a call</small></span></a>`
@@ -699,6 +768,7 @@ function settingsHtml() {
   const me = S.me;
   const profile = me.profile || {};
   const pushRow = {
+    'native-later': '<p>📞 Calls and messages ring while Lyr Chat is open. Notifications when it’s closed are coming in an app update.</p>',
     granted: '<p>🔔 Notifications are on for this device.</p><button class="btn small" data-act="push-off">Turn off</button>',
     off: '<p>🔕 Notifications are off for this device.</p><button class="btn small primary" data-act="push-on">Turn on</button>',
     default: '<p>Get messages and calls when the app is closed.</p><button class="btn small primary" data-act="push-on">Turn on notifications</button>',
@@ -731,6 +801,8 @@ function convInfo(id) {
     title: listed?.title || conversation?.title || 'Chat',
     request: conversation?.request || listed?.request || 'none',
     blocked: conversation?.blocked ?? listed?.blocked ?? false,
+    support: Boolean(conversation?.support),
+    label: conversation?.label || '',
     canCall: conversation ? conversation.canCall : ['dm', 'group'].includes(type) && (listed?.request || 'none') === 'none',
     members: conversation?.members?.length || listed?.memberCount || 0,
   };
@@ -758,6 +830,11 @@ function convHeadHtml(id) {
 function requestBarHtml(id) {
   const c = convInfo(id);
   if (c.blocked) return `<div class="lc-request">You blocked ${esc(c.title)}. They can’t message or call you here. <button class="btn small" data-act="unblock" data-conv="${esc(id)}">Unblock</button></div>`;
+  if (c.request === 'incoming' && c.support) {
+    return `<div class="lc-request"><p><b>${esc(c.title)}</b> wrote to Lyrsoft Support from ${esc(c.label || 'a Lyr site')}. Reply to help them. They see you as Lyrsoft Support, never your email.</p>
+      <div class="lc-request-buttons"><button class="btn primary small" data-act="accept" data-conv="${esc(id)}">Accept</button><button class="btn small" data-act="delete-request" data-conv="${esc(id)}">Delete</button><button class="btn small" data-act="block" data-conv="${esc(id)}">Block</button></div></div>`;
+  }
+  if (c.request === 'outgoing' && c.support) return `<div class="lc-request muted">💬 You’re chatting with Lyrsoft Support. We usually reply within a few hours; you’ll get a notification.</div>`;
   if (c.request === 'incoming') {
     return `<div class="lc-request"><p><b>${esc(c.title)}</b> isn’t in your workspaces and wants to chat. Accepting (or replying) lets them see your email and call you.</p>
       <div class="lc-request-buttons"><button class="btn primary small" data-act="accept" data-conv="${esc(id)}">Accept</button><button class="btn small" data-act="delete-request" data-conv="${esc(id)}">Delete</button><button class="btn small" data-act="block" data-conv="${esc(id)}">Block</button><button class="btn small ghost danger" data-act="report" data-conv="${esc(id)}">Report</button></div></div>`;
@@ -856,7 +933,16 @@ async function route() {
   if (view === 'calls' && S.calls) loadCalls();
   if (view === 'settings') loadBlocked();
   if (view === 'contacts' || view === 'new') loadBook();
-  if (view === 'new' && S.route.params.get('to')) {
+  if (view === 'new' && S.route.params.get('to') === 'support') {
+    // From Lyrbot's "Lyr Chat" button on a Lyr site: straight into a chat with Lyrsoft Support.
+    try {
+      const dm = await api('POST', '/chat/dm', { support: S.route.params.get('site') || 'Lyrsoft' });
+      await refreshList();
+      return go(`#/chat/${encodeURIComponent(dm.id)}`);
+    } catch (error) {
+      toast(error.message);
+    }
+  } else if (view === 'new' && S.route.params.get('to')) {
     S.newQuery = S.route.params.get('to');
     openDm(S.newQuery);
   }
@@ -892,6 +978,11 @@ const actions = {
     try {
       localStorage.removeItem(KEEP_KEY);
     } catch {}
+    // In the phone app, signing out just forgets this device's session.
+    if (Native) {
+      clearTokens();
+      return location.replace('/chat/');
+    }
     logout();
   },
   dm: (t) => openDm(t.dataset.to),
@@ -1164,9 +1255,12 @@ async function start() {
   keepTokens();
   await refreshList();
   loadBook();
-  S.push = !('PushManager' in window) || !('Notification' in window) ? 'unsupported' : Notification.permission;
-  swRegistration();
-  if (S.push === 'granted') enablePush(false);
+  if (Native) enableNativePush(false).then(() => S.route.view === 'settings' && renderSide());
+  else {
+    S.push = !('PushManager' in window) || !('Notification' in window) ? 'unsupported' : Notification.permission;
+    swRegistration();
+    if (S.push === 'granted') enablePush(false);
+  }
   await route();
   if (!started) {
     started = true;

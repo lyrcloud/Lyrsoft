@@ -827,7 +827,25 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
 
 registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
 
-const push = createPush({ db: { put, del, queryAll }, getSecret: () => getAppSecret(), now });
+// The Lyr Chat phone apps' push goes through Firebase Cloud Messaging with a Google service account kept
+// in the FCM_SECRET secret (lyrsoft/fcm). Until that secret exists, phones only ring while the app is open.
+const FCM_SECRET = process.env.FCM_SECRET;
+let fcmAccount = { at: 0, value: null };
+async function getFcmAccount() {
+  if (process.env.FCM_SERVICE_ACCOUNT) return JSON.parse(process.env.FCM_SERVICE_ACCOUNT);
+  if (!FCM_SECRET) return null;
+  if (Date.now() - fcmAccount.at < 10 * 60_000) return fcmAccount.value;
+  let value = null;
+  try {
+    value = JSON.parse((await new SecretsManagerClient({}).send(new GetSecretValueCommand({ SecretId: FCM_SECRET }))).SecretString);
+    if (!value?.client_email || !value?.private_key || !value?.project_id) value = null;
+  } catch (error) {
+    if (error.name !== 'ResourceNotFoundException') console.warn('FCM secret unreadable', error.name);
+  }
+  fcmAccount = { at: Date.now(), value };
+  return value;
+}
+const push = createPush({ db: { put, del, queryAll }, getSecret: () => getAppSecret(), now, getFcmAccount });
 const collab = registerCollabRoutes(route, {
   db: { get, put, del, queryAll },
   HttpError,
@@ -847,6 +865,8 @@ const collab = registerCollabRoutes(route, {
   push,
   getSecret: () => getAppSecret(),
   reportTo: SUPER_ADMIN_EMAIL,
+  // Chats started from Lyrbot's "Lyr Chat" button go to this account (SUPPORT_CHAT_EMAIL, default the super admin).
+  supportEmail: (process.env.SUPPORT_CHAT_EMAIL || SUPER_ADMIN_EMAIL).toLowerCase(),
 });
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });

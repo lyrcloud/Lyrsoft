@@ -36,6 +36,8 @@ await mkdir(join(OUT, 'app'), { recursive: true });
 await mkdir(join(OUT, 'chat'), { recursive: true });
 // A service worker's scope is its folder, so it can't live under /assets/.
 await copyFile(join('lyrsoft', 'lyrchat-sw.js'), join(OUT, 'chat', 'sw.js'));
+// Lyrbot's Lyr Chat button for other sites, at a stable URL they can embed.
+await copyFile(join('lyrsoft', 'lyrchat-widget.js'), join(OUT, 'lyrchat-widget.js'));
 for (const [source, target] of Object.entries(pages)) {
   let html = await readFile(join('lyrsoft', source), 'utf8');
   // Pages reference assets as "/app/<file>"; links to the app itself ("/app/") are left alone.

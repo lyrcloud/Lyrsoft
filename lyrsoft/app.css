@@ -5918,3 +5918,9 @@ button.app-btn:disabled {
 
 /* Sidebar link to Lyr Chat (opens the app in its own tab) */
 .nav-ext { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
+
+/* Lyr Chat inside Lyrsoft Work: the frame sits over this slot (app.js placeLyrChat). */
+.content.lyrchat-content { padding: 0; }
+.lyrchat-slot { height: calc(100dvh - 53px); }
+.lyrchat-frame { position: fixed; z-index: 4; border: 0; background: var(--surface); }
+.lyrchat-frame.parked { visibility: hidden; pointer-events: none; }

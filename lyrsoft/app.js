@@ -102,6 +102,7 @@ function parseRoute() {
   if (parts[0] === 'profile') return { view: 'profile', params };
   if (parts[0] === 'chat') return { view: 'chat', conv: parts[1] || null, params };
   if (parts[0] === 'meetings') return { view: 'meetings', params };
+  if (parts[0] === 'lyrchat') return { view: 'lyrchat', params };
   if (parts[0] === 'contacts') return { view: 'contacts', id: parts[1] || null, params };
   if (parts[0] === 'meet' && parts[1]) return { view: 'meet', meetingId: parts[1], params };
   if (parts[0] === 'admin') return { view: 'admin', tab: parts[1] === 'updates' ? 'updates' : 'users', params };
@@ -252,7 +253,7 @@ function sidebar() {
     </aside>`;
 }
 
-const CRUMBS = { profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing' };
+const CRUMBS = { lyrchat: 'Lyr Chat', profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing' };
 const crumb = () => (route.view.startsWith('mail') ? 'Mail' : CRUMBS[route.view] || state.ws?.workspace.name || 'Lyrsoft Work');
 
 function topbar() {
@@ -290,6 +291,8 @@ function render() {
       ? mail.view(route)
       : isAccountView()
         ? account.view(route)
+        : route.view === 'lyrchat'
+          ? '<div class="lyrchat-slot" aria-label="Lyr Chat"></div>'
         : route.view === 'chat'
           ? chat.view(route)
           : route.view === 'contacts'
@@ -304,7 +307,7 @@ function render() {
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content${['chat', 'contacts', 'marketing', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
+      <main class="content${route.view === 'lyrchat' ? ' wide lyrchat-content' : ''}${['chat', 'contacts', 'marketing', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
@@ -312,8 +315,39 @@ function render() {
   chat.afterRender();
   meetings.afterRender();
   ui.afterRender(location.hash.split('?')[0] || '#/');
+  placeLyrChat();
   document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
+
+// ------------------------------------------------------------------ Lyr Chat inside Lyrsoft Work
+// The Lyr Chat app (/chat/) runs in a frame laid over the content area. Once opened it stays loaded
+// (hidden) while you use the rest of Work, so calls keep ringing: it asks to be shown when one comes in.
+
+let lyrChatFrame = null;
+function placeLyrChat() {
+  const slot = document.querySelector('.lyrchat-slot');
+  if (!slot && !lyrChatFrame) return;
+  if (!lyrChatFrame) {
+    lyrChatFrame = document.createElement('iframe');
+    lyrChatFrame.className = 'lyrchat-frame';
+    lyrChatFrame.title = 'Lyr Chat';
+    lyrChatFrame.src = `/chat/${route.params.get('open') ? `#/chat/${encodeURIComponent(route.params.get('open'))}` : ''}`;
+    lyrChatFrame.allow = 'microphone; camera; display-capture; autoplay; clipboard-write; fullscreen; speaker-selection';
+    document.body.append(lyrChatFrame);
+  }
+  if (!slot) {
+    lyrChatFrame.classList.add('parked');
+    return;
+  }
+  const box = slot.getBoundingClientRect();
+  Object.assign(lyrChatFrame.style, { top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, height: `${Math.max(320, window.innerHeight - box.top)}px` });
+  lyrChatFrame.classList.remove('parked');
+}
+window.addEventListener('resize', () => lyrChatFrame && placeLyrChat());
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin || event.source !== lyrChatFrame?.contentWindow) return;
+  if (event.data?.type === 'lyrchat-ring' && route.view !== 'lyrchat') go('#/lyrchat');
+});
 
 // ------------------------------------------------------------------ views
 

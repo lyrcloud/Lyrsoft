@@ -40,12 +40,14 @@
 //   GET  /chat/blocked                          people I've blocked
 //   GET  /chat/address-book                     which of my Lyrsoft Contacts are on Lyrsoft (see matchAddressBook)
 //   POST /chat/dm                               { contactId } chat with someone from my Contacts
+//   POST /chat/dm                               { support: '<site>' } chat with Lyrsoft support (from Lyrbot on the Lyr sites)
 //   POST /calls                                 { conv, video } ring everyone in a DM or group
 //   GET  /calls                                 my call history       GET /calls/ringing   calls ringing for me
 //   GET  /calls/{id}                            status (the caller watches for answer / decline)
 //   POST /calls/{id}/answer | decline | end
 //   POST /public/call                           { id, email, t } "Decline" from a notification (signed token)
 //   GET  /push/key, POST /push/subscribe, POST /push/unsubscribe   Web Push for new messages and calls
+//   POST /push/native                           { token, platform } the phone app's FCM token (push.mjs)
 //
 // Keys in the work table:
 //   CHAT#<conv>      META                conversation (lastMessageAt, lastSnippet, lastAuthor; members for DMs)
@@ -82,6 +84,7 @@ import {
   endCall,
   maskFor,
   maskJson,
+  supportSite,
   messagePush,
   postBlocked,
   REPORT_MESSAGES,
@@ -125,7 +128,7 @@ const CALL_ID_RE = /^[0-9a-f-]{36}$/;
 const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/;
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 
-export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId, s3, bucket, addWorkspaceMember, countUse, push, getSecret, reportTo }) {
+export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId, s3, bucket, addWorkspaceMember, countUse, push, getSecret, reportTo, supportEmail }) {
   const { get, put, queryAll } = db;
   const bad = (message) => new HttpError(400, message);
   const tryClean = (fn) => {
@@ -173,6 +176,10 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
   const eitherBlocked = async (a, b) => (await blockedBy(a, b)) || (await blockedBy(b, a));
   const profileByEmail = async (email) => (await listProfiles()).find((p) => p.email === email && !p.disabled) || null;
   const otherOf = (meta, email) => meta.members.find((e) => e !== email) || email;
+  // In a support chat the support account is "Lyrsoft Support" to the visitor: never its name or email.
+  const supportAccount = (meta) => (meta?.request?.support ? meta.request.to : null);
+  const SUPPORT_NAME = 'Lyrsoft Support';
+  const shownName = (meta, email, name) => (email && email === supportAccount(meta) ? SUPPORT_NAME : name);
 
   // Everyone I can put in a group or call: co-workers plus people I have an accepted chat with.
   async function peopleFor(me) {
@@ -196,7 +203,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     }
     const snippet = message.body ? snippetOf(message.body) : message.attachments?.length ? (message.attachments.some((a) => /^audio\//.test(a.type)) ? '🎙 Voice message' : message.attachments.some((a) => /^image\//.test(a.type)) ? '📷 Photo' : '📎 File') : '';
     const request = requestState(meta, me.email) === 'outgoing';
-    await push.send(recipients, messagePush({ conv, meta, author: me.name || me.email, snippet, request }), { ttl: 86400, topic: `m${conv.replace(/\W/g, '')}` });
+    await push.send(recipients, messagePush({ conv, meta, author: shownName(meta, me.email, me.name || me.email), snippet, request }), { ttl: 86400, topic: `m${conv.replace(/\W/g, '')}` });
   }
 
   // Photos and files are private in the mail bucket; the app gets links that work for an hour.
@@ -306,8 +313,19 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     let email = String(body.email || '').trim().toLowerCase();
     let account = null;
     let label = byPhone ? String(body.phone).trim().slice(0, 30) : '';
-    // Someone from my Contacts that Lyr Chat matched (by their email, or by a number they verified).
-    if (body.contactId) {
+    let support = null;
+    if (body.support) {
+      // Lyrsoft support: the visitor never sees which account answers.
+      support = supportSite(body.support);
+      email = String(supportEmail || reportTo || '').toLowerCase();
+      if (!email) throw new HttpError(503, 'Support chat isn’t set up.');
+      if (email === me.email) throw bad('You are Lyrsoft support.');
+      account = await profileByEmail(email);
+      if (!account) throw new HttpError(503, 'Support chat isn’t available right now. Email hello@lyrsoft.com instead.');
+      byPhone = true; // masked, like a chat found by number
+      label = support;
+    } else if (body.contactId) {
+      // Someone from my Contacts that Lyr Chat matched (by their email, or by a number they verified).
       const contact = /^[\w-]{6,40}$/.test(String(body.contactId)) ? await get(`CONTACTS#${me.userId}`, `C#${body.contactId}`) : null;
       if (!contact) throw new HttpError(404, 'Contact not found.');
       const profiles = await listProfiles();
@@ -331,10 +349,17 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       // A request I had deleted comes back when I open the chat myself.
       if (!existing.members.includes(me.email)) throw new HttpError(404, 'Conversation not found.');
       await put(memberRow(conv, me.email));
+      if (support && existing.request?.support && existing.request.label !== label) {
+        const next = { ...existing, request: { ...existing.request, label } };
+        await put(next);
+        return dmOut(me, next, contact);
+      }
       return dmOut(me, existing, contact);
     }
     let request = null;
-    if (!contact) {
+    if (support) {
+      request = { from: me.email, to: email, status: 'pending', at: now(), masked: true, support: true, label };
+    } else if (!contact) {
       if ((await countUse(`dm-request#${me.userId}`, 'day')) > DM_REQUESTS_PER_DAY) throw new HttpError(429, 'You’ve started a lot of new chats today. Try again tomorrow.');
       account ??= await profileByEmail(email);
       if (!account) throw new HttpError(404, 'There’s no Lyrsoft account with that email yet. Invite them instead.');
@@ -342,7 +367,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       request = { from: me.email, to: email, status: 'pending', at: now(), masked: byPhone, label };
     }
     const createdAt = now();
-    const otherName = contact?.name || (byPhone ? firstName(account?.name) : account?.name || '');
+    const otherName = support ? 'Lyrsoft Support' : contact?.name || (byPhone ? firstName(account?.name) : account?.name || '');
     const meta = { PK: `CHAT#${conv}`, SK: 'META', conv, type: 'dm', members: [me.email, email].sort(), names: { [me.email]: me.name || '', [email]: otherName }, createdAt, ...(request ? { request } : {}) };
     await put(meta);
     for (const member of [me.email, email]) await put(memberRow(conv, member));
@@ -539,7 +564,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     const typingRows = await queryAll({ KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)', ExpressionAttributeValues: { ':pk': `CHAT#${conv}`, ':sk': 'TYPING#' } });
     const typing = typingRows
       .filter((t) => t.email !== me.email && Date.now() - Date.parse(t.at) < TYPING_MS)
-      .map((t) => t.name || t.email);
+      .map((t) => shownName(meta, t.email, t.name || t.email));
     // Seen receipts and active status for DMs and groups (not for whole-workspace channels).
     const others = (meta.members || []).filter((e) => e !== me.email).slice(0, 30);
     const reads = Object.fromEntries(await Promise.all(others.map(async (e) => [e, (await get(`CHATREAD#${e}`, conv))?.lastReadAt || null])));
@@ -554,10 +579,11 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
         id: conv, type, title: meta.title || null, members: meta.members || null, names: meta.names || {}, createdBy: meta.createdBy || null, meetingId: meta.meetingId || null,
         request: request === 'blocked' ? 'outgoing' : request,
         label: meta.request?.label || '',
+        support: Boolean(meta.request?.support),
         blocked,
         canCall: type === 'group' || (type === 'dm' && canCall(meta, me.email, blocked || (await blockedBy(other, me.email)))),
       },
-      messages: await Promise.all(messages.map((m) => messageOut(m, me, nameOf))),
+      messages: (await Promise.all(messages.map((m) => messageOut(m, me, nameOf)))).map((m) => (supportAccount(meta) && m.authorEmail === supportAccount(meta) && me.email !== m.authorEmail ? { ...m, authorName: SUPPORT_NAME } : m)),
       typing,
       // No read receipts or "active" until a request is accepted.
       reads: request === 'none' ? reads : {},
@@ -947,18 +973,18 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     const startedAt = now();
     const callId = randomUUID();
     const other = meta.type === 'dm' ? members[0] : null;
-    const title = meta.type === 'group' ? meta.title : `${firstName(me.name) || me.email} and ${firstName(meta.names?.[other]) || other}`;
+    const title = meta.type === 'group' ? meta.title : `${firstName(shownName(meta, me.email, me.name)) || me.email} and ${firstName(meta.names?.[other]) || other}`;
     const meetingId = randomUUID();
     const meeting = {
       PK: `MEETING#${meetingId}`, SK: 'META', meetingId, callId,
       title: `${video ? '📹' : '📞'} ${title}`.slice(0, 120),
       startsAt: startedAt, durationMin: 60, invitees: members, timeZone: 'UTC',
-      hostEmail: me.email, hostName: me.name || '', names: { ...meta.names, [me.email]: me.name || '' },
+      hostEmail: me.email, hostName: shownName(meta, me.email, me.name || ''), names: { ...meta.names, [me.email]: shownName(meta, me.email, me.name || '') },
       conv, guestKey: newGuestKey(), createdAt: startedAt,
     };
     await put(meeting);
     for (const email of [me.email, ...members]) await put(inviteRow(meeting, email));
-    const call = { PK: `CALL#${callId}`, SK: 'META', callId, conv, convType: meta.type, meetingId, from: me.email, fromName: me.name || me.email, title: meta.type === 'group' ? meta.title : me.name || me.email, video, members, status: 'ringing', startedAt, answeredBy: [], declinedBy: [] };
+    const call = { PK: `CALL#${callId}`, SK: 'META', callId, conv, convType: meta.type, meetingId, from: me.email, fromName: shownName(meta, me.email, me.name || me.email), title: meta.type === 'group' ? meta.title : shownName(meta, me.email, me.name || me.email), video, members, status: 'ringing', startedAt, answeredBy: [], declinedBy: [] };
     await put(call);
     for (const email of [me.email, ...members]) await put(callUserRow(call, email));
     // A group call stays joinable from the chat; a DM call is summed up in the chat when it ends.
@@ -970,7 +996,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       conv,
       video,
       title: `Incoming ${video ? 'video' : 'voice'} call`,
-      body: meta.type === 'group' ? `${me.name || me.email} · ${meta.title}` : me.name || me.email,
+      body: meta.type === 'group' ? `${me.name || me.email} · ${meta.title}` : shownName(meta, me.email, me.name || me.email),
       tag: `call-${callId}`,
       url: `/chat/#/call/${callId}`,
       email,
@@ -1047,7 +1073,15 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { subscribed: true };
   });
 
+  // The phone app's Firebase Cloud Messaging token.
+  route('POST', '/push/native', async (me, _p, body) => {
+    if (!push) throw new HttpError(503, 'Notifications aren’t set up.');
+    await tryCleanAsync(() => push.subscribeNative(me.email, body.token, body.platform));
+    return { subscribed: true, ready: await push.nativeReady() };
+  });
+
   route('POST', '/push/unsubscribe', async (me, _p, body) => {
+    if (body.token) await push?.unsubscribeNative(me.email, body.token);
     await push?.unsubscribe(me.email, body.endpoint);
     return { subscribed: false };
   });

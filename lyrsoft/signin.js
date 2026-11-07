@@ -128,7 +128,8 @@ export function showSignIn(root, onSignedIn) {
     const target = event.target.closest('[data-mode], [data-action]');
     if (!target) return;
     if (target.dataset.mode) return setMode(target.dataset.mode);
-    if (target.dataset.action === 'google') return redirectToLogin(location.pathname + location.hash, 'google');
+    // The Lyr Chat phone app signs in with Google in the phone's browser (Google refuses app web views).
+    if (target.dataset.action === 'google') return window.lyrNativeSignIn ? window.lyrNativeSignIn() : redirectToLogin(location.pathname + location.hash, 'google');
     if (target.dataset.action === 'resend') {
       try {
         await resendCode(CLIENT_ID, state.email);

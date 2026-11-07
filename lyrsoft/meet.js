@@ -34,8 +34,10 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
   async function load(route) {
     if (route.view === 'meetings') meet.list = await api('GET', '/meetings');
     if (route.view === 'meet' && meet.lobby?.id !== route.meetingId) {
+      // ?k= is a guest link's key: opening it adds the signed-in person to the meeting.
+      meet.key = route.params.get('k') || null;
       meet.lobby = null;
-      meet.lobby = (await api('GET', `/meetings/${encodeURIComponent(route.meetingId)}`)).meeting;
+      meet.lobby = (await api('GET', `/meetings/${encodeURIComponent(route.meetingId)}${meet.key ? `?k=${encodeURIComponent(meet.key)}` : ''}`)).meeting;
     }
   }
 
@@ -57,7 +59,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         </div>
         <div class="meeting-actions">
           ${m.cancelled ? '' : `<a class="btn small primary" href="#/meet/${encodeURIComponent(m.id)}">Join</a>`}
-          ${m.cancelled ? '' : `<button class="btn small" data-click="meet-copy" data-url="${esc(m.joinUrl)}">🔗 Copy link</button>`}
+          ${m.cancelled ? '' : `<button class="btn small" data-click="meet-copy" data-url="${esc(m.guestUrl || m.joinUrl)}">🔗 Copy link</button>`}
           ${m.conv ? `<a class="btn small" href="#/chat/${encodeURIComponent(m.conv)}">💬 Chat</a>` : ''}
           ${m.canManage && !m.cancelled ? `<button class="btn small" data-click="meet-invite" data-id="${esc(m.id)}">+ Invite</button><button class="btn small ghost" data-click="meet-cancel" data-id="${esc(m.id)}">Cancel</button>` : ''}
         </div>
@@ -129,7 +131,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
                 <p class="muted small">Your browser will ask to use your microphone${' '}and camera.</p>`
         }
         <div class="row lobby-links">
-          <button class="btn small ghost" data-click="meet-copy" data-url="${esc(m.joinUrl)}">🔗 Copy invite link</button>
+          <button class="btn small ghost" data-click="meet-copy" data-url="${esc(m.guestUrl || m.joinUrl)}">🔗 Copy ${m.guestUrl ? 'guest' : 'invite'} link</button>
+          ${m.guestUrl && !m.cancelled ? `<a class="btn small ghost" href="https://wa.me/?text=${encodeURIComponent(`Join my Lyrsoft video meeting “${m.title}”: ${m.guestUrl}`)}" target="_blank" rel="noopener">🟢 Send on WhatsApp</a>` : ''}
           ${m.conv ? `<a class="btn small ghost" href="#/chat/${encodeURIComponent(m.conv)}">💬 Meeting chat</a>` : ''}
           ${m.canManage && !m.cancelled ? `<button class="btn small ghost" data-click="meet-invite" data-id="${esc(m.id)}">+ Invite people</button>` : ''}
           <a class="btn small ghost" href="#/meetings">All meetings</a>
@@ -276,7 +279,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       await leaveCall();
     }
     toast('Connecting…');
-    const data = await api('POST', `/meetings/${encodeURIComponent(meetingId)}/join`);
+    const data = await api('POST', `/meetings/${encodeURIComponent(meetingId)}/join`, meet.key ? { k: meet.key } : undefined);
     const sdk = await import('./chime-sdk.js');
     const logger = new sdk.ConsoleLogger('lyrsoft-meet', sdk.LogLevel.WARN);
     const deviceController = new sdk.DefaultDeviceController(logger);
@@ -286,7 +289,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     call = {
       meetingId,
       title: data.meeting.title,
-      joinUrl: data.meeting.joinUrl,
+      joinUrl: data.meeting.guestUrl || data.meeting.joinUrl,
       conv: data.conv || data.meeting.conv,
       meeting: data.meeting,
       chatOpen: false,
@@ -628,7 +631,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       submitLabel: 'Send invitations',
       extraHtml: `<p class="muted small invite-link-row">Or share the link: <button type="button" class="btn small ghost" data-copy-link>🔗 Copy invite link</button></p>`,
     });
-    document.querySelector('.people-dialog [data-copy-link]')?.addEventListener('click', () => copy(meeting.joinUrl, 'Invite link copied'));
+    document.querySelector('.people-dialog [data-copy-link]')?.addEventListener('click', () => copy(meeting.guestUrl || meeting.joinUrl, meeting.guestUrl ? 'Guest link copied: anyone who opens it and signs in can join' : 'Invite link copied'));
     const picked = await choosing;
     if (!picked) return;
     try {

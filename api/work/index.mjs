@@ -662,16 +662,21 @@ route('DELETE', '/workspaces/{ws}', async (me, { ws }) => {
   return { deleted: true };
 });
 
-route('POST', '/workspaces/{ws}/members', async (me, { ws }, body) => {
+// Adds someone to a workspace by email (owners and admins). Also used to add a contact found by phone.
+async function addWorkspaceMember(me, ws, rawEmail, newRole = 'member') {
   const { workspace, role } = await openWorkspace(me, ws, 'manageMembers');
-  const email = String(body.email || '').trim().toLowerCase();
+  const email = String(rawEmail || '').trim().toLowerCase();
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address.');
-  const newRole = body.role || 'member';
   const refused = memberChangeError({ actorRole: role, actorEmail: me.email, targetEmail: email, targetRole: null, newRole });
   if (refused) throw new HttpError(...refused);
   if (await get(`WS#${ws}`, `MEMBER#${email}`)) throw new HttpError(409, `${email} is already in this workspace.`);
   const row = memberRow(ws, workspace.name, email, newRole, { addedAt: now(), addedBy: me.email });
   await put(row);
+  return row;
+}
+
+route('POST', '/workspaces/{ws}/members', async (me, { ws }, body) => {
+  const row = await addWorkspaceMember(me, ws, body.email, body.role || 'member');
   return [201, { member: memberOut(row) }];
 });
 
@@ -834,6 +839,8 @@ registerCollabRoutes(route, {
   bucket: MAIL_BUCKET,
   now,
   newId,
+  addWorkspaceMember,
+  countUse: (key, period) => countUse(key, period),
 });
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });

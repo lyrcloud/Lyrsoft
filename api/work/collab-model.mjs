@@ -1,5 +1,5 @@
 // Pure rules for Lyrsoft chat and meetings (routes in collab.mjs).
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 export const MESSAGE_MAX = 4000;
 export const MEETING_TITLE_MAX = 120;
@@ -134,3 +134,29 @@ export const replyQuote = (m) => ({
   authorName: m.authorName || '',
   snippet: m.deletedAt ? 'Message unsent' : snippetOf(m.body) || (m.attachments?.length ? `📎 ${m.attachments.length} file${m.attachments.length === 1 ? '' : 's'}` : ''),
 });
+
+// ------------------------------------------------------------------ reaching people by phone number
+
+export const PHONE_LOOKUPS_PER_DAY = 60; // per person, so nobody can sweep numbers to find accounts
+
+// Finds the one Lyrsoft account whose *verified* mobile is `input`. "+880 1712-345678" and
+// "00880…" match exactly; a number written without its country code ("01712 345678") matches on its
+// last 10 digits (9 for short national numbers), but only when exactly one account fits.
+export function profileForPhone(profiles, input) {
+  const raw = String(input || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return null;
+  const verified = profiles.filter((p) => p.phoneVerified && typeof p.phone === 'string' && p.email);
+  if (/^(\+|00)/.test(raw)) {
+    const e164 = `+${raw.startsWith('00') ? digits.slice(2) : digits}`;
+    return verified.find((p) => p.phone === e164) || null;
+  }
+  const tail = digits.replace(/^0+/, '').slice(-10);
+  if (tail.length < 9) return null;
+  const found = verified.filter((p) => p.phone.replace(/\D/g, '').endsWith(tail));
+  return found.length === 1 ? found[0] : null;
+}
+
+// A secret for a meeting's guest link: anyone who opens it and signs in joins the meeting.
+export const newGuestKey = () => randomBytes(12).toString('base64url');
+export const GUEST_KEY_RE = /^[A-Za-z0-9_-]{16}$/;

@@ -87,3 +87,23 @@ test('a reply quotes the author and the start of the message', async () => {
   assert.equal(replyQuote({ id: 'm', createdAt: 't', authorEmail: 'a', body: '', attachments: [{}, {}] }).snippet, '📎 2 files');
   assert.equal(replyQuote({ id: 'm', createdAt: 't', authorEmail: 'a', body: 'x', deletedAt: 't' }).snippet, 'Message unsent');
 });
+
+test('phone numbers find verified Lyrsoft accounts only, and only unambiguously', async () => {
+  const { profileForPhone, newGuestKey, GUEST_KEY_RE } = await import('./collab-model.mjs');
+  const profiles = [
+    { email: 'ada@x.com', phone: '+8801712345678', phoneVerified: true },
+    { email: 'bob@x.com', phone: '+14155550100', phoneVerified: true },
+    { email: 'cy@x.com', phone: '+8801999999999', phoneVerified: false },
+    { email: 'di@x.com', phone: '+4407700900123', phoneVerified: true },
+    { email: 'ed@x.com', phone: '+4917700900123', phoneVerified: true },
+  ];
+  assert.equal(profileForPhone(profiles, '+880 1712-345678')?.email, 'ada@x.com');
+  assert.equal(profileForPhone(profiles, '00880 1712 345678')?.email, 'ada@x.com');
+  assert.equal(profileForPhone(profiles, '01712-345678')?.email, 'ada@x.com');
+  assert.equal(profileForPhone(profiles, '(415) 555-0100')?.email, 'bob@x.com');
+  assert.equal(profileForPhone(profiles, '+8801999999999'), null); // not verified
+  assert.equal(profileForPhone(profiles, '07700 900123'), null); // two accounts end the same way
+  assert.equal(profileForPhone(profiles, '12345'), null);
+  assert.equal(profileForPhone(profiles, '+15550000000'), null);
+  assert.match(newGuestKey(), GUEST_KEY_RE);
+});

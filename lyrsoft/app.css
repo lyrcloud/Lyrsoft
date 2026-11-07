@@ -5666,3 +5666,54 @@ button.contact-action {
   gap: 12px;
   align-items: center;
 }
+
+/* Contacts: choose email or phone, and send links by WhatsApp / SMS */
+.channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.channel-option {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 12px !important;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-weight: 400 !important;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.channel-option:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.channel-option span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.channel-icon {
+  font-size: 1.2rem;
+}
+
+.share-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-row .btn {
+  flex: 1 1 110px;
+}
+
+.share-wa {
+  border-color: #25d366;
+  color: #128c4b;
+}

@@ -43,7 +43,7 @@ import { CreateAttendeeCommand, CreateMeetingCommand, DeleteMeetingCommand, GetM
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { safeFilename } from '../mail/model.mjs';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { meetingInviteEmail } from './account.mjs';
 import {
   ACTIVE_MS,
@@ -57,6 +57,10 @@ import {
   attendeeExternalId,
   canManageMeeting,
   canSeeMeeting,
+  GUEST_KEY_RE,
+  newGuestKey,
+  PHONE_LOOKUPS_PER_DAY,
+  profileForPhone,
   channelId,
   cleanInvitees,
   cleanMeeting,
@@ -74,7 +78,7 @@ import {
 
 const MEETING_ID_RE = /^[0-9a-f-]{36}$/;
 
-export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId, s3, bucket }) {
+export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isStaff, memberships, listProfiles, sendEmail, siteUrl, chime, now, newId, s3, bucket, addWorkspaceMember, countUse }) {
   const { get, put, queryAll } = db;
   const bad = (message) => new HttpError(400, message);
   const tryClean = (fn) => {
@@ -407,13 +411,30 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     cancelled: Boolean(m.cancelledAt),
     canManage: canManageMeeting(m, me.email, isStaff(me.globalRole)),
     joinUrl: `${siteUrl}/app/#/meet/${m.meetingId}`,
+    // Hosts get a link anyone can use (after signing in), to send by WhatsApp, SMS or anywhere.
+    guestUrl: canManageMeeting(m, me.email, isStaff(me.globalRole)) && m.guestKey ? `${siteUrl}/app/#/meet/${m.meetingId}?k=${m.guestKey}` : null,
     createdAt: m.createdAt,
   });
 
-  async function openMeeting(me, id) {
-    const meeting = MEETING_ID_RE.test(id) ? await get(`MEETING#${id}`, 'META') : null;
+  const keyMatches = (meeting, key) =>
+    Boolean(meeting.guestKey && GUEST_KEY_RE.test(String(key || '')) && timingSafeEqual(Buffer.from(meeting.guestKey), Buffer.from(String(key))));
+
+  // `key` is a guest link's secret: whoever opens the link (signed in) becomes an invitee.
+  async function openMeeting(me, id, key) {
+    let meeting = MEETING_ID_RE.test(id) ? await get(`MEETING#${id}`, 'META') : null;
+    if (meeting && !canSeeMeeting(meeting, me.email, isStaff(me.globalRole)) && keyMatches(meeting, key) && !meeting.cancelledAt) {
+      meeting = { ...meeting, invitees: [...(meeting.invitees || []), me.email], names: { ...meeting.names, [me.email]: me.name || '' } };
+      await put(meeting);
+      await put(inviteRow(meeting, me.email));
+    }
     if (!meeting || !canSeeMeeting(meeting, me.email, isStaff(me.globalRole))) throw new HttpError(404, 'Meeting not found.');
     return meeting;
+  }
+
+  // The one Lyrsoft account with this verified mobile number, or null. Limited per person per day.
+  async function accountForPhone(me, phone) {
+    if ((await countUse(`phone-lookup#${me.userId}`, 'day')) > PHONE_LOOKUPS_PER_DAY) throw new HttpError(429, 'That’s a lot of phone lookups today. Try again tomorrow.');
+    return profileForPhone(await listProfiles(), phone);
   }
 
   const inviteRow = (meeting, email) => ({
@@ -501,6 +522,15 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     if (conversation && !body.invitees) body = { ...body, invitees: await conversationPeople(conversation) };
     const clean = tryClean(() => cleanMeeting(body, me.email));
     const contacts = await contactsFor(me);
+    // Phone numbers invite the Lyrsoft accounts that verified them, if they share a workspace with
+    // the host; anyone else gets the guest link (sent by WhatsApp or SMS from the app).
+    const phoneMatches = [];
+    for (const phone of (Array.isArray(body.invitePhones) ? body.invitePhones : []).slice(0, 10)) {
+      const account = await accountForPhone(me, phone);
+      const known = account && contacts.some((c) => c.email === account.email);
+      phoneMatches.push({ phone: String(phone), invited: Boolean(known), name: known ? account.name || '' : '' });
+      if (known && account.email !== me.email && !clean.invitees.includes(account.email)) clean.invitees.push(account.email);
+    }
     const names = Object.fromEntries([[me.email, me.name || ''], ...contacts.map((c) => [c.email, c.name])].filter(([email]) => email === me.email || clean.invitees.includes(email)));
     const meeting = {
       PK: `MEETING#${randomUUID()}`,
@@ -510,6 +540,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       hostName: me.name || '',
       names,
       conv: conversation?.conv || null,
+      guestKey: newGuestKey(),
       createdAt: now(),
     };
     meeting.meetingId = meeting.PK.slice('MEETING#'.length);
@@ -520,10 +551,33 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     if (conversation) {
       await postMessage(me, conversation.conv, conversation.meta, { body: `${meeting.title} · ${formatMeetingTime(meeting.startsAt, meeting.timeZone)}`, kind: 'meeting', meetingId: meeting.meetingId });
     }
-    return [201, { meeting: meetingOut(meeting, me), emailed }];
+    return [201, { meeting: meetingOut(meeting, me), emailed, phones: phoneMatches }];
   });
 
-  route('GET', '/meetings/{id}', async (me, { id }) => ({ meeting: meetingOut(await openMeeting(me, id), me) }));
+  route('GET', '/meetings/{id}', async (me, { id }, _b, query) => {
+    let meeting = await openMeeting(me, id, query?.get('k'));
+    // Meetings from before guest links get one the first time their host opens them.
+    if (!meeting.guestKey && canManageMeeting(meeting, me.email, isStaff(me.globalRole))) {
+      meeting = { ...meeting, guestKey: newGuestKey() };
+      await put(meeting);
+    }
+    return { meeting: meetingOut(meeting, me) };
+  });
+
+  // Who is this phone number on Lyrsoft? Only accounts that verified the number count. A co-worker
+  // comes back with their email; anyone else only as "found", unless `addToWs` adds them to one of
+  // my workspaces (I must be its owner or an admin), after which we share a workspace anyway.
+  route('POST', '/people/phone', async (me, _p, body) => {
+    const account = await accountForPhone(me, body.phone);
+    if (!account) return { found: false };
+    if (account.email === me.email) return { found: true, self: true };
+    const coworker = (await contactsFor(me)).some((c) => c.email === account.email);
+    if (!coworker && body.addToWs) {
+      await addWorkspaceMember(me, String(body.addToWs), account.email);
+      return { found: true, coworker: true, added: true, email: account.email, name: account.name || '' };
+    }
+    return coworker ? { found: true, coworker: true, email: account.email, name: account.name || '' } : { found: true, coworker: false, name: account.name ? account.name.split(' ')[0] : '' };
+  });
 
   route('POST', '/meetings/{id}/invite', async (me, { id }, body) => {
     const meeting = await openMeeting(me, id);
@@ -567,8 +621,8 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return Meeting;
   }
 
-  route('POST', '/meetings/{id}/join', async (me, { id }) => {
-    let meeting = await openMeeting(me, id);
+  route('POST', '/meetings/{id}/join', async (me, { id }, body) => {
+    let meeting = await openMeeting(me, id, body?.k);
     if (meeting.cancelledAt) throw bad('This meeting was cancelled.');
     // Meetings made before meeting chats get one now; staff joining uninvited get added to it.
     meeting = await ensureMeetingChat(meeting);

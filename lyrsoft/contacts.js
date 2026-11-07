@@ -138,12 +138,12 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
       phone && `<a class="contact-action" href="sms:${esc(phone.replace(/[^\d+]/g, ''))}"><span>💬</span>Text</a>`,
       wa && wa.replace(/\D/g, '').length >= 7 && `<a class="contact-action" href="${esc(socialUrl({ network: 'whatsapp', value: wa }))}" target="_blank" rel="noopener"><span>🟢</span>WhatsApp</a>`,
       email && `<a class="contact-action" href="mailto:${esc(email)}"><span>✉</span>Email</a>`,
-      // Lyrsoft's own chat and video meetings, for anyone with an email address.
-      email
+      // Lyrsoft's own chat and video meetings, by email address or phone number.
+      reachable(c)
         ? `<button type="button" class="contact-action lyr" data-click="contacts-lyr-chat" data-id="${esc(c.id)}"><span>💬</span>Lyr Chat</button>
            <button type="button" class="contact-action lyr" data-click="contacts-meeting" data-id="${esc(c.id)}"><span>📹</span>Meeting</button>`
-        : `<button type="button" class="contact-action lyr" disabled title="Add an email address to chat or meet in Lyrsoft"><span>💬</span>Lyr Chat</button>
-           <button type="button" class="contact-action lyr" disabled title="Add an email address to chat or meet in Lyrsoft"><span>📹</span>Meeting</button>`,
+        : `<button type="button" class="contact-action lyr" disabled title="Add a phone number or email to chat or meet in Lyrsoft"><span>💬</span>Lyr Chat</button>
+           <button type="button" class="contact-action lyr" disabled title="Add a phone number or email to chat or meet in Lyrsoft"><span>📹</span>Meeting</button>`,
     ].filter(Boolean).join('');
     const section = (title, body) => (body ? `<section class="contact-section"><h3>${title}</h3>${body}</section>` : '');
     const socials = c.socials.map((s) => {
@@ -704,108 +704,176 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
   }
 
   // ---------------------------------------------------------------- Lyr Chat and meetings
+  // Both work with an email address or a phone number. A phone number finds the Lyrsoft account that
+  // verified it (POST /people/phone); people not on Lyrsoft get a link by WhatsApp or SMS instead.
 
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const emailsOf = (c) => c.emails.map((e) => e.value);
+  const APP_URL = `${location.origin}/app/`;
+  const digitsOf = (phone) => String(phone || '').replace(/\D/g, '');
+  const waLink = (phone, text) => `https://wa.me/${digitsOf(phone).replace(/^00/, '')}?text=${encodeURIComponent(text)}`;
+  const smsLink = (phone, text) => `sms:${String(phone).replace(/[^\d+]/g, '')}?&body=${encodeURIComponent(text)}`;
+  const reachable = (c) => c.emails.length > 0 || c.phones.length > 0;
+  const firstName = (c) => (c.given || c.name || '').split(' ')[0] || c.name;
 
-  // Picks one of the contact's emails when they have several.
-  async function pickEmail(c, action) {
-    const emails = emailsOf(c);
-    if (emails.length < 2) return emails[0] || null;
-    return openDialog(`
+  const formDialog = (html, read) => openDialog(html, {
+    wide: false,
+    setup(node, done) {
+      const form = node.querySelector('form');
+      node.querySelectorAll('[data-done]').forEach((b) => b.addEventListener('click', () => done({ ...read(form), button: b.dataset.done })));
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        done({ ...read(form), button: 'submit' });
+      });
+    },
+  });
+
+  // Which email or phone number to use: asks only when there's a choice.
+  async function pickChannel(c, action) {
+    const options = [...c.emails.map((e) => ({ kind: 'email', value: e.value, label: e.label })), ...c.phones.map((p) => ({ kind: 'phone', value: p.value, label: p.label }))];
+    if (options.length < 2) return options[0] || null;
+    const picked = await formDialog(`
       <form><h2>${esc(action)} ${esc(c.name)}</h2>
-        <p class="muted small">Which address?</p>
-        <div class="stack">${emails.map((e, i) => `<label class="check"><input type="radio" name="email" value="${esc(e)}"${i ? '' : ' checked'} /> ${esc(e)}</label>`).join('')}</div>
+        <div class="channel-list">${options.map((o, i) => `<label class="channel-option"><input type="radio" name="i" value="${i}"${i ? '' : ' checked'} /><span class="channel-icon" aria-hidden="true">${o.kind === 'email' ? '✉' : '📱'}</span><span><b>${esc(o.value)}</b><small class="muted">${o.kind === 'email' ? 'Email' : 'Phone'}${o.label ? ` · ${esc(o.label)}` : ''}</small></span></label>`).join('')}</div>
         <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn primary">Continue</button></div>
-      </form>`, {
-      wide: false,
-      setup(node, done) {
-        node.querySelector('form').addEventListener('submit', (event) => {
-          event.preventDefault();
-          done(new FormData(event.target).get('email'));
-        });
-      },
-    });
+      </form>`, (form) => ({ i: new FormData(form).get('i') }));
+    return picked ? options[Number(picked.i)] : null;
   }
 
-  async function lyrChat(c) {
-    const email = await pickEmail(c, 'Chat with');
-    if (!email) return;
-    if (email === getMe()?.email) return toast('That’s you!');
+  // Offers to send a message with a link by WhatsApp or SMS from this device.
+  async function sendByPhone(c, phone, { title, text, note = '', continueLabel = 'Done' }) {
+    await formDialog(`
+      <form><h2>${esc(title)}</h2>
+        ${note ? `<p class="muted small">${note}</p>` : ''}
+        <pre class="signature-preview">${esc(text)}</pre>
+        <div class="share-row">
+          <a class="btn share-wa" href="${esc(waLink(phone, text))}" target="_blank" rel="noopener">🟢 WhatsApp</a>
+          <a class="btn" href="${esc(smsLink(phone, text))}">💬 SMS</a>
+          <button type="button" class="btn ghost" data-copy>🔗 Copy</button>
+        </div>
+        <div class="row end"><button class="btn primary">${esc(continueLabel)}</button></div>
+      </form>`, () => ({}));
+  }
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('dialog [data-copy]');
+    if (!button) return;
     try {
-      const { id } = await api('POST', '/chat/dm', { email });
-      go(`#/chat/${encodeURIComponent(id)}`);
-      return;
-    } catch (error) {
-      if (!/share a workspace/i.test(error.message)) return toast(error.message);
+      await navigator.clipboard.writeText(button.closest('form').querySelector('pre').textContent);
+      toast('Copied');
+    } catch {
+      toast('Couldn’t copy. Select the text and copy it yourself.');
     }
-    // Not working together yet: offer to add them to one of my workspaces, then open the chat.
+  });
+
+  async function chooseWorkspace(c, intro) {
     const spaces = (getMe()?.workspaces || []).filter((w) => w.role === 'owner' || w.role === 'admin');
-    if (!spaces.length) return toast(`${c.name} isn’t in any of your workspaces. Ask a workspace owner to add ${email}, or start a Meeting instead.`);
-    const ws = await openDialog(`
+    if (!spaces.length) return null;
+    const result = await formDialog(`
       <form><h2>Chat with ${esc(c.name)}</h2>
-        <p>${esc(email)} isn’t in any of your workspaces yet. Add them to one to chat in Lyrsoft. They’ll see it when they sign in with that email.</p>
+        <p>${intro}</p>
         <label>Workspace<select name="ws">${spaces.map((w) => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('')}</select></label>
         <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn primary">Add and chat</button></div>
-      </form>`, {
-      wide: false,
-      setup(node, done) {
-        node.querySelector('form').addEventListener('submit', (event) => {
-          event.preventDefault();
-          done(new FormData(event.target).get('ws'));
-        });
-      },
-    });
-    if (!ws) return;
+      </form>`, (form) => ({ ws: new FormData(form).get('ws') }));
+    return result?.ws || null;
+  }
+
+  const openDm = async (email) => {
+    const { id } = await api('POST', '/chat/dm', { email });
+    go(`#/chat/${encodeURIComponent(id)}`);
+  };
+
+  async function lyrChat(c) {
+    const channel = await pickChannel(c, 'Chat with');
+    if (!channel) return;
     try {
-      await api('POST', `/workspaces/${encodeURIComponent(ws)}/members`, { email, role: 'member' });
-      const { id } = await api('POST', '/chat/dm', { email });
-      toast(`Added ${c.name} to the workspace`);
-      go(`#/chat/${encodeURIComponent(id)}`);
+      if (channel.kind === 'email') return await chatByEmail(c, channel.value);
+      return await chatByPhone(c, channel.value);
     } catch (error) {
       toast(error.message);
     }
   }
 
-  async function meeting(c) {
-    const email = await pickEmail(c, 'Meet');
-    if (!email) return;
+  async function chatByEmail(c, email) {
     if (email === getMe()?.email) return toast('That’s you!');
+    try {
+      return await openDm(email);
+    } catch (error) {
+      if (!/share a workspace/i.test(error.message)) throw error;
+    }
+    const ws = await chooseWorkspace(c, `${esc(email)} isn’t in any of your workspaces yet. Add them to one to chat in Lyrsoft. They’ll see it when they sign in with that email.`);
+    if (!ws) {
+      if (!(getMe()?.workspaces || []).some((w) => w.role === 'owner' || w.role === 'admin')) toast(`${c.name} isn’t in any of your workspaces. Ask a workspace owner to add ${email}, or start a Meeting instead.`);
+      return;
+    }
+    await api('POST', `/workspaces/${encodeURIComponent(ws)}/members`, { email, role: 'member' });
+    toast(`Added ${c.name} to the workspace`);
+    await openDm(email);
+  }
+
+  async function chatByPhone(c, phone) {
+    const found = await api('POST', '/people/phone', { phone });
+    if (found.self) return toast('That’s your own number!');
+    if (found.found && found.coworker) return openDm(found.email);
+    if (found.found) {
+      const ws = await chooseWorkspace(c, `${esc(phone)} belongs to a Lyrsoft account${found.name ? ` (${esc(found.name)})` : ''}, but you don’t share a workspace yet. Add them to one to chat.`);
+      if (!ws) {
+        if (!(getMe()?.workspaces || []).some((w) => w.role === 'owner' || w.role === 'admin')) toast('You need to own or run a workspace to add people.');
+        return;
+      }
+      const added = await api('POST', '/people/phone', { phone, addToWs: ws });
+      toast(`Added ${c.name} to the workspace`);
+      return openDm(added.email);
+    }
+    await sendByPhone(c, phone, {
+      title: `Invite ${firstName(c)} to Lyrsoft`,
+      note: `No Lyrsoft account has verified ${esc(phone)} yet. Send ${esc(firstName(c))} an invitation; once they sign up and verify this number in their profile, Lyr Chat finds them.`,
+      text: `Hi ${firstName(c)}! Let’s chat on Lyrsoft: ${APP_URL}\nSign up, then verify your mobile number in your profile so I can find you.`,
+    });
+  }
+
+  async function meeting(c) {
+    const channel = await pickChannel(c, 'Meet');
+    if (!channel) return;
+    if (channel.value === getMe()?.email) return toast('That’s you!');
     const soon = new Date(Date.now() + 3600e3);
     soon.setMinutes(0, 0, 0);
     const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
-    const choice = await openDialog(`
+    const how = channel.kind === 'email'
+      ? `They get an email with a Join link (${esc(channel.value)}). They join by signing in to Lyrsoft with that email.`
+      : `You’ll send ${esc(firstName(c))} the Join link by WhatsApp or SMS (${esc(channel.value)}). If their Lyrsoft account has verified this number and you share a workspace, it also shows in their Meetings.`;
+    const choice = await formDialog(`
       <form><h2>Meet ${esc(c.name)}</h2>
-        <p class="muted small">They get an email with a Join link (${esc(email)}). They join by signing in to Lyrsoft with that email.</p>
+        <p class="muted small">${how}</p>
         <div class="meet-choice">
-          <button type="button" class="btn primary big" data-now>📹 Call now</button>
+          <button type="button" class="btn primary big" data-done="now">📹 Call now</button>
           <span class="muted small">or schedule it</span>
         </div>
         <div class="form-grid">
           <label>When<input type="datetime-local" name="startsAt" value="${local(soon)}" min="${local(new Date())}" /></label>
           <label>Length<select name="durationMin">${[15, 30, 45, 60, 90, 120].map((m) => `<option value="${m}"${m === 30 ? ' selected' : ''}>${m} minutes</option>`).join('')}</select></label>
         </div>
-        <label>Title<input name="title" maxlength="100" value="${esc(`${getMe()?.name ? `${getMe().name.split(' ')[0]} and ` : 'Call with '}${c.name.split(' ')[0]}`)}" /></label>
+        <label>Title<input name="title" maxlength="100" value="${esc(`${getMe()?.name ? `${getMe().name.split(' ')[0]} and ` : 'Call with '}${firstName(c)}`)}" /></label>
         <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn">🕑 Schedule</button></div>
-      </form>`, {
-      wide: false,
-      setup(node, done) {
-        const form = node.querySelector('form');
-        node.querySelector('[data-now]').addEventListener('click', () => done({ now: true, title: form.elements.title.value }));
-        form.addEventListener('submit', (event) => {
-          event.preventDefault();
-          done(Object.fromEntries(new FormData(form)));
-        });
-      },
-    });
+      </form>`, (form) => Object.fromEntries(new FormData(form)));
     if (!choice) return;
+    const now = choice.button === 'now';
     try {
       const title = String(choice.title || '').trim() || `Call with ${c.name}`;
-      const { meeting: m, emailed } = await api('POST', '/meetings', choice.now
-        ? { title, durationMin: 60, invitees: [email], timeZone }
-        : { title, startsAt: new Date(choice.startsAt).toISOString(), durationMin: Number(choice.durationMin), invitees: [email], timeZone });
-      toast(emailed ? `Invitation emailed to ${email}` : 'Meeting created');
-      go(choice.now ? `#/meet/${encodeURIComponent(m.id)}` : '#/meetings');
+      const who = channel.kind === 'email' ? { invitees: [channel.value] } : { invitees: [], invitePhones: [channel.value] };
+      const { meeting: m, emailed, phones } = await api('POST', '/meetings', now
+        ? { title, durationMin: 60, timeZone, ...who }
+        : { title, startsAt: new Date(choice.startsAt).toISOString(), durationMin: Number(choice.durationMin), timeZone, ...who });
+      if (channel.kind === 'phone') {
+        const when = now ? 'now' : new Date(m.startsAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+        await sendByPhone(c, channel.value, {
+          title: `Send ${firstName(c)} the link`,
+          note: phones?.[0]?.invited ? `${esc(firstName(c))}’s Lyrsoft account has this number, so it’s also in their Meetings${emailed ? ' and inbox' : ''}.` : 'Anyone who opens this link and signs in to Lyrsoft can join.',
+          text: `Join my Lyrsoft video meeting “${m.title}” ${now ? 'now' : `on ${when}`}: ${m.guestUrl || m.joinUrl}`,
+          continueLabel: now ? 'Start the call' : 'Done',
+        });
+      } else {
+        toast(emailed ? `Invitation emailed to ${channel.value}` : 'Meeting created');
+      }
+      go(now ? `#/meet/${encodeURIComponent(m.id)}` : '#/meetings');
     } catch (error) {
       toast(error.message);
     }

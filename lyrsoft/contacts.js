@@ -21,7 +21,9 @@ import {
   toVCard,
 } from './contacts-formats.js';
 
-const SHOWN_MAX = 400; // rows drawn at once; search narrows the rest
+const SHOWN_MAX = 400;
+// Google Meet's camera shape, drawn small in its brand colours.
+const GMEET_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#00832d" d="M3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path fill="#00ac47" d="M15 10.5 20.4 6.6a.4.4 0 0 1 .6.3v10.2a.4.4 0 0 1-.6.3L15 13.5z"/><path fill="#ffba00" d="M3 8a2 2 0 0 1 2-2h4v4H3z"/><path fill="#2684fc" d="M3 14h6v4H5a2 2 0 0 1-2-2z"/></svg>'; // rows drawn at once; search narrows the rest
 const IMPORT_CHUNK = 400;
 const LABELS = ['mobile', 'home', 'work', 'main', 'other'];
 const SOURCE_NAMES = {
@@ -178,7 +180,9 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
         </div>
       </header>
       ${actions ? `<div class="contact-actions">${actions}</div>` : ''}
-      <div class="contact-apps">${appButtons}<button type="button" class="app-btn add" data-click="contacts-apps" data-id="${esc(c.id)}" title="Telegram, Viber, Signal by phone number, or add Instagram, Facebook, X, Discord…"><span class="social-icon" aria-hidden="true">＋</span><span class="app-btn-text"><b>Apps</b><small>${c.phones.length ? 'More ways to reach' : 'Add a profile'}</small></span></button></div>
+      <div class="contact-apps">${appButtons}${reachable(c) ? `
+        <button type="button" class="app-btn" data-click="contacts-gmeet" data-id="${esc(c.id)}" title="Start or schedule a Google Meet with ${esc(c.name)}"><span class="social-icon net-gmeet" aria-hidden="true">${GMEET_ICON}</span><span class="app-btn-text"><b>Google Meet</b><small>Meet now or schedule</small></span></button>
+        <button type="button" class="app-btn" data-click="contacts-teams" data-id="${esc(c.id)}"${email ? '' : ' disabled title="Teams needs an email address"'} title="Chat, call or meet ${esc(c.name)} in Microsoft Teams"><span class="social-icon net-teams" aria-hidden="true">T</span><span class="app-btn-text"><b>Teams</b><small>${email ? 'Chat, call or meet' : 'Needs an email'}</small></span></button>` : ''}<button type="button" class="app-btn add" data-click="contacts-apps" data-id="${esc(c.id)}" title="Telegram, Viber, Signal by phone number, or add Instagram, Facebook, X, Discord…"><span class="social-icon" aria-hidden="true">＋</span><span class="app-btn-text"><b>Apps</b><small>${c.phones.length ? 'More ways to reach' : 'Add a profile'}</small></span></button></div>
       <div class="contact-tools">
         <button class="btn small" data-click="contacts-edit" data-id="${esc(c.id)}">✎ Edit</button>
         <button class="btn small" data-click="contacts-favorite" data-id="${esc(c.id)}">${c.favorite ? '☆ Unfavourite' : '★ Favourite'}</button>
@@ -936,7 +940,141 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
     }
   }
 
+  // ---------------------------------------------------------------- Google Meet and Microsoft Teams
+  // Both are opened through their public links: Teams can open a chat, a call or a new-meeting form with
+  // the contact filled in; Google Meet starts a meeting (meet.google.com/new) or a Google Calendar event
+  // with them invited, which Calendar gives a Meet link. No Google or Microsoft account is connected.
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const gcalTime = (d) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+  const localInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+  const nextHour = () => {
+    const d = new Date(Date.now() + 3600e3);
+    d.setMinutes(0, 0, 0);
+    return d;
+  };
+  const meTitle = (c) => `${getMe()?.name ? `${getMe().name.split(' ')[0]} and ` : 'Call with '}${firstName(c)}`;
+
+  // Sends a meeting link to the contact by email, WhatsApp or SMS (whichever they have).
+  async function shareMeetingLink(c, { title, link, app }) {
+    const email = c.emails[0]?.value;
+    const phone = c.phones[0]?.value;
+    const text = `Join me on ${app}: ${link}`;
+    await openDialog(`
+      <form><h2>Send ${esc(firstName(c))} the link</h2>
+        <pre class="signature-preview">${esc(text)}</pre>
+        <div class="share-row">
+          ${email ? `<a class="btn" href="mailto:${esc(email)}?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(text)}">✉ Email</a>` : ''}
+          ${phone ? `<a class="btn share-wa" href="${esc(waLink(phone, text))}" target="_blank" rel="noopener">🟢 WhatsApp</a><a class="btn" href="${esc(smsLink(phone, text))}">💬 SMS</a>` : ''}
+          <button type="button" class="btn ghost" data-copy>🔗 Copy</button>
+        </div>
+        <div class="row end"><button class="btn primary">Done</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        node.querySelector('form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(true);
+        });
+      },
+    });
+  }
+
+  async function googleMeet(c) {
+    const email = c.emails[0]?.value;
+    const choice = await openDialog(`
+      <form class="gmeet-dialog"><h2><span class="social-icon net-gmeet" aria-hidden="true">${GMEET_ICON}</span> Google Meet with ${esc(firstName(c))}</h2>
+        <div class="meet-choice">
+          <button type="button" class="btn big" data-now>▶ Start a Meet now</button>
+          <span class="muted small">opens a new meeting; then paste its link here to send it</span>
+        </div>
+        <label>Meet link <span class="muted small">after it opens, copy the meet.google.com link from the address bar</span>
+          <span class="link-row"><input name="link" placeholder="https://meet.google.com/abc-defg-hij" autocomplete="off" /><button type="button" class="btn" data-send>Send link</button></span></label>
+        <h3 class="apps-h">Or schedule it</h3>
+        <div class="form-grid">
+          <label>When<input type="datetime-local" name="startsAt" value="${localInput(nextHour())}" /></label>
+          <label>Length<select name="durationMin">${[15, 30, 45, 60, 90].map((m) => `<option value="${m}"${m === 30 ? ' selected' : ''}>${m} minutes</option>`).join('')}</select></label>
+        </div>
+        <label>Title<input name="title" maxlength="100" value="${esc(meTitle(c))}" /></label>
+        <p class="muted small">${email ? `Opens Google Calendar with ${esc(email)} invited; Calendar adds the Meet link and emails them the invitation.` : 'Opens Google Calendar; add their email there, or send them the Meet link afterwards.'}</p>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Close</button><button class="btn primary">📅 Schedule</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        const form = node.querySelector('form');
+        node.querySelector('[data-now]').addEventListener('click', () => {
+          window.open('https://meet.google.com/new', '_blank', 'noopener');
+          form.elements.link.focus();
+        });
+        node.querySelector('[data-send]').addEventListener('click', () => {
+          const link = form.elements.link.value.trim();
+          if (!/^https:\/\/meet\.google\.com\/[a-z0-9-]+/i.test(link)) {
+            form.elements.link.focus();
+            return toast('Paste the meet.google.com link first.');
+          }
+          done({ send: link, title: form.elements.title.value });
+        });
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          done({ schedule: true, ...Object.fromEntries(new FormData(form)) });
+        });
+      },
+    });
+    if (!choice) return;
+    if (choice.send) return shareMeetingLink(c, { title: choice.title || meTitle(c), link: choice.send, app: 'Google Meet' });
+    const start = new Date(choice.startsAt);
+    if (Number.isNaN(start.getTime())) return toast('Pick a time.');
+    const end = new Date(start.getTime() + Number(choice.durationMin || 30) * 60e3);
+    const params = new URLSearchParams({ action: 'TEMPLATE', text: choice.title || meTitle(c), dates: `${gcalTime(start)}/${gcalTime(end)}`, details: 'Google Meet video call', ...(email ? { add: email } : {}) });
+    window.open(`https://calendar.google.com/calendar/render?${params}`, '_blank', 'noopener');
+  }
+
+  async function teams(c) {
+    const email = c.emails[0]?.value;
+    if (!email) return toast('Teams needs an email address for this contact.');
+    const users = encodeURIComponent(email);
+    const choice = await openDialog(`
+      <form><h2><span class="social-icon net-teams" aria-hidden="true">T</span> Microsoft Teams with ${esc(firstName(c))}</h2>
+        <p class="muted small">Opens Teams (the app, or teams.microsoft.com) signed in with your work or school account. ${esc(email)} must be reachable from your organisation.</p>
+        <div class="share-row">
+          <a class="btn" href="https://teams.microsoft.com/l/chat/0/0?users=${users}" target="_blank" rel="noopener">💬 Chat</a>
+          <a class="btn" href="https://teams.microsoft.com/l/call/0/0?users=${users}" target="_blank" rel="noopener">📞 Audio call</a>
+          <a class="btn" href="https://teams.microsoft.com/l/call/0/0?users=${users}&withVideo=true" target="_blank" rel="noopener">📹 Video call</a>
+        </div>
+        <h3 class="apps-h">Schedule a Teams meeting</h3>
+        <div class="form-grid">
+          <label>When<input type="datetime-local" name="startsAt" value="${localInput(nextHour())}" /></label>
+          <label>Length<select name="durationMin">${[15, 30, 45, 60, 90].map((m) => `<option value="${m}"${m === 30 ? ' selected' : ''}>${m} minutes</option>`).join('')}</select></label>
+        </div>
+        <label>Title<input name="title" maxlength="100" value="${esc(meTitle(c))}" /></label>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Close</button><button class="btn primary">📅 Schedule</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        node.querySelectorAll('.share-row a').forEach((a) => a.addEventListener('click', () => setTimeout(() => done(null), 50)));
+        node.querySelector('form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(Object.fromEntries(new FormData(event.target)));
+        });
+      },
+    });
+    if (!choice) return;
+    const start = new Date(choice.startsAt);
+    if (Number.isNaN(start.getTime())) return toast('Pick a time.');
+    const end = new Date(start.getTime() + Number(choice.durationMin || 30) * 60e3);
+    const params = new URLSearchParams({ subject: choice.title || meTitle(c), attendees: email, startTime: start.toISOString(), endTime: end.toISOString() });
+    window.open(`https://teams.microsoft.com/l/meeting/new?${params}`, '_blank', 'noopener');
+  }
+
   const clickActions = {
+    'contacts-gmeet': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) googleMeet(c);
+    },
+    'contacts-teams': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) teams(c);
+    },
     'contacts-apps': (target) => {
       const c = byId(target.dataset.id);
       if (c) appsDialog(c);

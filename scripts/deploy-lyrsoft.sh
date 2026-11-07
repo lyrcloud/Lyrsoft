@@ -25,7 +25,7 @@ npm test
 # Both Lambdas are bundled with their dependencies (AWS SDK, postal-mime) into one zip.
 build="$(mktemp -d)"
 trap 'rm -rf "$build"' EXIT
-npx esbuild work=api/work/index.mjs inbound=api/mail/inbound.mjs --bundle --platform=node --target=node22 \
+node node_modules/esbuild/bin/esbuild work=api/work/index.mjs inbound=api/mail/inbound.mjs --bundle --platform=node --target=node22 \
   --format=esm --minify-syntax --outdir="$build" --out-extension:.js=.mjs --log-level=warning \
   --banner:js="import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);"
 (cd "$build" && zip -q -X code.zip work.mjs inbound.mjs)

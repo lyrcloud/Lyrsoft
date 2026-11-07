@@ -24,7 +24,7 @@
 // refused.
 //
 // Public routes: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
-// item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox),
+// item on the "Website leads" board and a conversation in the support@lyrsoft.com Lyrsoft Mail inbox),
 // POST /public/lyrbot, the site's help assistant (lyrbot.mjs), POST /public/call ("Decline" on a
 // Lyr Chat call notification, signed per call and person), and GET|POST /public/unsubscribe,
 // the signed link in product update emails. Lyrsoft Marketing adds /public/m/open|click|unsubscribe
@@ -116,7 +116,7 @@ const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'lyrclouds@gmail.com'
 // Cognito Hosted UI domain; its userInfo endpoint turns an access token into the caller's profile.
 const COGNITO_DOMAIN = process.env.COGNITO_DOMAIN || 'lyrcloud-auth.auth.us-east-1.amazoncognito.com';
 const MAIL_BUCKET = process.env.MAIL_BUCKET;
-const CONTACT_MAILBOX = (process.env.CONTACT_MAILBOX || 'hello@lyrsoft.com').toLowerCase();
+const CONTACT_MAILBOX = (process.env.CONTACT_MAILBOX || 'support@lyrsoft.com').toLowerCase();
 const SITE_URL = (process.env.SITE_URL || 'https://lyrsoft.com').replace(/\/$/, '');
 // Secrets Manager secret holding the Anthropic API key for Lyrbot; ANTHROPIC_API_KEY wins (local dev).
 const ANTHROPIC_SECRET = process.env.ANTHROPIC_SECRET;
@@ -247,7 +247,7 @@ async function identify(event) {
   const storedRole = account?.role === 'admin' || profile?.role === 'admin' ? 'admin' : 'user';
   const globalRole = roleFor({ provider, email, role: storedRole }, SUPER_ADMIN_EMAIL);
   if (profile?.disabled === true && globalRole !== 'superadmin') {
-    throw new HttpError(403, 'This account has been disabled. Contact hello@lyrsoft.com.');
+    throw new HttpError(403, 'This account has been disabled. Contact support@lyrsoft.com.');
   }
   const providerName = user.name || '';
   const identity = {

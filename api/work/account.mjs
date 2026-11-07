@@ -179,7 +179,7 @@ Your Lyrsoft account is ready. Here's how to get going:
 3. Invite your team by email from Team & settings
 4. Verify your mobile number in your profile: ${app}#/profile
 
-Questions? Just reply to this email or write to hello@lyrsoft.com.
+Questions? Just reply to this email or write to support@lyrsoft.com.
 
 — The Lyrsoft team
 
@@ -194,7 +194,7 @@ You're getting this one-off email because you created a Lyrsoft account.`;
 <li>Verify your mobile number in your profile</li>
 </ol>
 ${button(app, 'Open Lyrsoft Work')}
-<p style="margin:0">Questions? Just reply to this email or write to <a href="mailto:hello@lyrsoft.com" style="color:${BRAND}">hello@lyrsoft.com</a>.</p>
+<p style="margin:0">Questions? Just reply to this email or write to <a href="mailto:support@lyrsoft.com" style="color:${BRAND}">support@lyrsoft.com</a>.</p>
 <p style="margin:16px 0 0">— The Lyrsoft team</p>`,
     footerHtml: 'You’re getting this one-off email because you created a Lyrsoft account.',
   });

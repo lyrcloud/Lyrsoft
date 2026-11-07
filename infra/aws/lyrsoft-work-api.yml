@@ -34,7 +34,7 @@ Parameters:
     Default: lyrsoft-inbound
   ContactMailbox:
     Type: String
-    Default: hello@lyrsoft.com
+    Default: support@lyrsoft.com
     Description: Lyrsoft Mail inbox that website contact-form enquiries are filed into (created on first use).
   FcmSecretName:
     Type: String
@@ -50,7 +50,7 @@ Parameters:
     Description: Sender of account emails (welcome, product updates). Its domain must be a verified SES identity. Blank turns them off.
   MailReplyTo:
     Type: String
-    Default: hello@lyrsoft.com
+    Default: support@lyrsoft.com
   MarketingFrom:
     Type: String
     Default: campaigns@lyrsoft.com

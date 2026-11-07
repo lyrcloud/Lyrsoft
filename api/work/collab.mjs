@@ -321,7 +321,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       if (!email) throw new HttpError(503, 'Support chat isn’t set up.');
       if (email === me.email) throw bad('You are Lyrsoft support.');
       account = await profileByEmail(email);
-      if (!account) throw new HttpError(503, 'Support chat isn’t available right now. Email hello@lyrsoft.com instead.');
+      if (!account) throw new HttpError(503, 'Support chat isn’t available right now. Email support@lyrsoft.com instead.');
       byPhone = true; // masked, like a chat found by number
       label = support;
     } else if (body.contactId) {

@@ -34,7 +34,7 @@ const status = (id, title, labels) => ({ id, title, type: 'status', labels: labe
 export function leadsBoard() {
   return {
     name: 'Website leads',
-    description: 'Every message from the lyrsoft.com contact form. Reply from the hello@lyrsoft.com inbox in Mail.',
+    description: 'Every message from the lyrsoft.com contact form. Reply from the support@lyrsoft.com inbox in Mail.',
     columns: [
       status('stage', 'Stage', [
         ['new', 'New', '#579bfc'],

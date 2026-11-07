@@ -1,5 +1,5 @@
 // The lyrsoft.com company website: mobile menu, Google sign-in and the contact form (POST /public/contact
-// on the work API, which files the enquiry on the Website leads board and in the hello@lyrsoft.com inbox).
+// on the work API, which files the enquiry on the Website leads board and in the support@lyrsoft.com inbox).
 import { isLoggedIn, redirectToLogin } from './auth.js';
 import { WORK_API_BASE } from './config.js';
 

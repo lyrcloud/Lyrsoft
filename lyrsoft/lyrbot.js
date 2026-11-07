@@ -7,7 +7,7 @@ import { WORK_API_BASE } from './config.js';
   const STORAGE_KEY = "lyrbotChat";
   const WHATSAPP_URL = "https://wa.me/16615809465";
   const WHATSAPP_LABEL = "+1 661 580 9465";
-  const SUPPORT_EMAIL = "hello@lyrsoft.com";
+  const SUPPORT_EMAIL = "support@lyrsoft.com";
   const GREETING = "Hi, I'm Lyrbot! Ask me about Lyrsoft's services, how we work, or how to start a project.";
   const QUICK_QUESTIONS = ["What does Lyrsoft build?", "How does a project work?", "How do I get a quote?", "What is Lyr Chat?"];
 

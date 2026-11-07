@@ -11,7 +11,7 @@ const MAX_TURNS = 12;
 const MAX_MESSAGE_LENGTH = 1000;
 const WHATSAPP_NUMBER = '+1 661 580 9465';
 const WHATSAPP_URL = 'https://wa.me/16615809465';
-const CONTACT_EMAIL = 'hello@lyrsoft.com';
+const CONTACT_EMAIL = 'support@lyrsoft.com';
 
 const SYSTEM_PROMPT = `You are Lyrbot, the help assistant on the website of Lyrsoft (lyrsoft.com), a software development studio. You chat with visitors in a small window on the site.
 

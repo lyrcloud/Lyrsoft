@@ -37,10 +37,12 @@ await build({
 (cd "$build" && zip -q -X code.zip work.mjs inbound.mjs)
 key="work-api/$(sha256sum "$build/code.zip" | cut -d' ' -f1).zip"
 aws s3 cp "$build/code.zip" "s3://$ARTIFACTS_BUCKET/$key" >/dev/null
-# MAIL_DOMAINS=a.com,b.com changes the receiving domains; otherwise the stack keeps its current list.
+# MAIL_DOMAINS=a.com,b.com changes the receiving domains; CONTACT_MAILBOX / MAIL_REPLY_TO change those addresses.
+# Anything not given keeps the stack's current value.
 aws cloudformation deploy --stack-name "$API_STACK" --template-file infra/aws/lyrsoft-work-api.yml \
   --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset \
-  --parameter-overrides "LambdaCodeS3Key=$key" ${MAIL_DOMAINS:+"MailDomains=$MAIL_DOMAINS"}
+  --parameter-overrides "LambdaCodeS3Key=$key" ${MAIL_DOMAINS:+"MailDomains=$MAIL_DOMAINS"} \
+  ${CONTACT_MAILBOX:+"ContactMailbox=$CONTACT_MAILBOX"} ${MAIL_REPLY_TO:+"MailReplyTo=$MAIL_REPLY_TO"}
 API_BASE="$(output "$API_STACK" WorkApiBaseUrl)"
 echo "Work API: $API_BASE"
 

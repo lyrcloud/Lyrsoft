@@ -4,7 +4,7 @@
 //
 //   <script src="https://lyrsoft.com/lyrchat-widget.js" data-site="Lyrpay" defer></script>
 //
-// Optional: data-whatsapp="16615809465" data-email="hello@lyrsoft.com" data-color="#6247ea"
+// Optional: data-whatsapp="16615809465" data-email="support@lyrsoft.com" data-color="#6247ea"
 // data-greeting="…". Everything renders in a shadow root, so the site's CSS can't affect it (or the reverse).
 (() => {
   if (window.__lyrchatWidget) return;
@@ -13,7 +13,7 @@
   const opt = (name, fallback) => script?.dataset?.[name] || fallback;
   const site = opt('site', location.hostname.replace(/^www\./, ''));
   const whatsapp = opt('whatsapp', '16615809465').replace(/\D/g, '');
-  const email = opt('email', 'hello@lyrsoft.com');
+  const email = opt('email', 'support@lyrsoft.com');
   const color = /^#[0-9a-f]{3,8}$/i.test(opt('color', '')) ? opt('color') : '#6247ea';
   const greeting = opt('greeting', `Hi, I'm Lyrbot 👋 Questions about ${site}? Chat with our team on Lyr Chat: free messages, voice and video calls.`);
   const chatUrl = `https://lyrsoft.com/chat/#/new?to=support&site=${encodeURIComponent(site)}`;

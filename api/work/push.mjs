@@ -10,7 +10,7 @@ import { cleanNativeToken, cleanSubscription, fcmMessage, PUSH_SUBSCRIPTIONS_MAX
 const SEND_TIMEOUT_MS = 4000;
 const endpointKey = (endpoint) => createHash('sha256').update(endpoint).digest('hex').slice(0, 32);
 
-export function createPush({ db, getSecret, now, contact = 'mailto:hello@lyrsoft.com', getFcmAccount = async () => null, fetchFn = (...a) => fetch(...a) }) {
+export function createPush({ db, getSecret, now, contact = 'mailto:support@lyrsoft.com', getFcmAccount = async () => null, fetchFn = (...a) => fetch(...a) }) {
   let keys = null;
   const vapid = async () => (keys ??= vapidKeysFrom(await getSecret()));
   const list = (email) => db.queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `PUSH#${email}` } });

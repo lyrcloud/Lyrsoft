@@ -11,7 +11,9 @@
 // on your device. Nothing is uploaded.
 import { attachInviteeField, inviteeField, pickPeople } from './people.js';
 
-export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog, chat }) {
+// Lyr Chat (lyrchat.js) uses the same call room: `onCallChange(info | null)` hears when people join or
+// the call ends, and `callRoute: false` keeps the address as it is while in a call.
+export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog, chat, onCallChange = () => {}, callRoute = true }) {
   const meet = { list: null, lobby: null, scheduling: false };
   let call = null; // the active call (see joinCall)
   let recorder = null; // the active recording (see startRecording)
@@ -340,6 +342,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       }
       call.status = `${call.people.size} in call`;
       renderCall();
+      onCallChange(callInfo());
     });
 
     av.addObserver({
@@ -404,9 +407,12 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     await av.bindAudioElement(callRoot().querySelector('.call-audio'));
     av.start();
     if (withVideo) await toggleCamera();
-    history.replaceState(null, '', `#/meet/${encodeURIComponent(meetingId)}`);
+    if (callRoute) history.replaceState(null, '', `#/meet/${encodeURIComponent(meetingId)}`);
     render();
+    onCallChange(callInfo());
   }
+
+  const callInfo = () => (call ? { meetingId: call.meetingId, people: call.people.size, conv: call.conv } : null);
 
   // Cameras: phones have a front ("user") and a rear ("environment") one. Asking by facing mode works
   // on phones whatever the cameras are called; computers with one camera just get that one.
@@ -483,8 +489,9 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
 
   function cleanupCall() {
     if (!call) return;
-    const { av, chatView } = call;
+    const { av, chatView, meetingId } = call;
     call = null;
+    onCallChange(null, meetingId);
     if (chatView?.el?.closest('#call-root')) chatView.unmount();
     if (chatView) chatView.onNewMessage = () => {};
     try {
@@ -727,5 +734,9 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         : '',
     clickActions,
     formActions,
+    joinCall: (meetingId, withVideo) => joinCall(meetingId, withVideo),
+    leaveCall: () => leaveCall(),
+    showCall: () => showCall(),
+    currentCall: () => callInfo(),
   };
 }

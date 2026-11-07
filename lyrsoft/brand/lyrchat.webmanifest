@@ -1,0 +1,17 @@
+{
+  "id": "/chat/",
+  "name": "Lyr Chat",
+  "short_name": "Lyr Chat",
+  "description": "Free messages, voice and video calls with anyone on Lyrsoft.",
+  "start_url": "/chat/",
+  "scope": "/chat/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#6247ea",
+  "background_color": "#f4f5fb",
+  "categories": ["social", "communication"],
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

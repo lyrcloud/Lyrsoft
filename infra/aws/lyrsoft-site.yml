@@ -39,7 +39,7 @@ Resources:
         SigningProtocol: sigv4
 
   # www -> bare domain, so sign-in (whose callback is registered for the bare domain) always works.
-  # Also serves folder URLs (/app/) from their index.html, and adds the slash to /app.
+  # Also serves folder URLs (/app/, /chat/) from their index.html, and adds the slash to /app and /chat.
   WwwRedirectFunction:
     Type: AWS::CloudFront::Function
     Properties:
@@ -59,8 +59,8 @@ Resources:
               headers: { location: { value: 'https://${DomainName}' + request.uri } },
             };
           }
-          if (request.uri === '/app') {
-            return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: '/app/' } } };
+          if (request.uri === '/app' || request.uri === '/chat') {
+            return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: request.uri + '/' } } };
           }
           if (request.uri.endsWith('/')) request.uri += 'index.html';
           return request;

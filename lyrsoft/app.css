@@ -5896,3 +5896,22 @@ button.app-btn:disabled {
 .find-list li > span:not(.social-icon) { flex: 1; min-width: 0; display: grid; }
 .find-list a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .find-by { margin: 6px 0 4px; }
+
+/* Conversations: voice messages and call bubbles (shared by Messages and Lyr Chat) */
+.cv-quick-group { display: inline-flex; align-items: center; min-width: 0; height: auto; }
+.cv-mic { font-size: 1.35rem !important; }
+.cv-recording { align-items: center; gap: 10px; padding: 2px 0; }
+.cv-recording .cv-send { margin-left: auto; }
+.cv-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: cv-blink 1s infinite; }
+.cv-rec-time { font-variant-numeric: tabular-nums; font-weight: 700; }
+@keyframes cv-blink { 50% { opacity: 0.25; } }
+.cv-voice { display: flex; align-items: center; gap: 6px; }
+.cv-voice audio { width: min(260px, 60vw); height: 40px; }
+.chat-call { display: flex; align-items: center; gap: 10px; min-width: 200px; }
+.chat-call > span:nth-child(2) { display: flex; flex-direction: column; }
+.chat-call small { opacity: 0.75; font-size: 0.78rem; }
+.chat-call-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--brand-tint); font-size: 1.05rem; }
+.chat-call.missed b { color: var(--danger); }
+.chat-msg.mine .chat-call.missed b { color: inherit; }
+.chat-msg.mine .chat-call .btn { border-color: rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.18); color: #fff; }
+.chat-msg.mine .chat-call-icon { background: rgba(255, 255, 255, 0.2); }

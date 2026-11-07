@@ -527,6 +527,14 @@ Resources:
       Target: !Sub 'integrations/${LambdaIntegration}'
       AuthorizationType: NONE
 
+  CallDeclineRoute: # "Decline" on a Lyr Chat call notification (token-signed; the service worker has no sign-in)
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /public/call'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+      AuthorizationType: NONE
+
   UnsubscribeGetRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:

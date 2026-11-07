@@ -118,6 +118,10 @@ function query({ TableName, IndexName, KeyConditionExpression, FilterExpression,
     items = [...table(TableName).values()].filter(
       (item) => item[hashKey] === v[match[2]] && typeof item[sortKey] === 'string' && item[sortKey].startsWith(v[match[4]]),
     );
+  } else if ((match = KeyConditionExpression.match(/^(\w+) = (:\w+) AND (\w+) (<=|>=|<|>) (:\w+)$/))) {
+    const [, , pk, , op, value] = match;
+    const cmp = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b }[op];
+    items = [...table(TableName).values()].filter((item) => item[hashKey] === v[pk] && typeof item[sortKey] === 'string' && cmp(item[sortKey], v[value]));
   } else {
     throw new Error(`fake-dynamodb: unsupported KeyConditionExpression ${KeyConditionExpression}`);
   }

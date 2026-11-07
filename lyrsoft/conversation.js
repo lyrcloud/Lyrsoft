@@ -1,5 +1,5 @@
 // One conversation's messages and composer, Messenger-style: replies, reactions, edit and unsend,
-// photos and files, emoji, "typing…", "Seen" and "Active now". Used by the Messages page (chat.js) and
+// photos and files, voice messages, emoji, "typing…", "Seen" and "Active now". Used by the Messages page (chat.js) and
 // the chat panel in calls (meet.js): mount(element) draws it into any element and keeps it live with
 // polling (only what's new or changed since the last poll). Its events use data-cv attributes, so they
 // never mix with the app's own data-click handlers.
@@ -8,6 +8,9 @@ const TYPING_PING_MS = 3000;
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EMOJI = '😀 😁 😂 🤣 😊 😍 😘 😎 🤔 😅 😉 🙂 🙃 😢 😭 😡 😮 😴 🥳 🤩 👍 👎 👏 🙌 🙏 💪 👋 🤝 ✌️ 👌 ❤️ 🧡 💛 💚 💙 💜 🔥 ⭐ ✨ 🎉 🎂 ☕ 🍕 🚀 ✅ ❌ ⚠️ 📌 📎 📅 💡 💯'.split(' ');
 const IMAGE_RE = /^image\/(jpeg|png|gif|webp|heic|heif|avif)$/;
+const AUDIO_RE = /^audio\//;
+const VOICE_TYPES = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus'];
+const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
 const sizeText = (bytes) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
 const ago = (iso) => {
@@ -19,8 +22,11 @@ const ago = (iso) => {
 };
 
 export class ConversationView {
-  constructor({ id, api, esc, toast, initial, getMe, onUpdate = () => {}, onNewMessage = () => {} }) {
-    Object.assign(this, { id, api, esc, toast, initial, getMe, onUpdate, onNewMessage });
+  // onCall(video) and onJoinMeeting(meetingId), when given (Lyr Chat), turn call and meeting messages
+  // into Call back / Join buttons; otherwise meetings link to #/meet/<id>.
+  constructor({ id, api, esc, toast, initial, getMe, onUpdate = () => {}, onNewMessage = () => {}, onCall = null, onJoinMeeting = null }) {
+    Object.assign(this, { id, api, esc, toast, initial, getMe, onUpdate, onNewMessage, onCall, onJoinMeeting });
+    this.voice = null; // a voice message being recorded: { rec, stream, chunks, started, timer }
     this.messages = [];
     this.conversation = null;
     this.typing = [];
@@ -106,6 +112,7 @@ export class ConversationView {
   }
 
   unmount() {
+    if (this.voice) this.stopVoice(false);
     clearInterval(this.timer);
     this.timer = null;
     this.unmountListeners();
@@ -142,12 +149,12 @@ export class ConversationView {
         ${this.replyTo || this.editing ? `<div class="cv-context"><span>${this.editing ? '✎ Editing your message' : `↩ Replying to <b>${esc(this.nameOf(this.replyTo.authorEmail))}</b>: ${esc(this.snippet(this.replyTo))}`}</span><button type="button" class="icon-btn" data-cv="cancel-context" aria-label="Cancel">✕</button></div>` : ''}
         ${this.pending.length || this.uploading ? `<div class="cv-pending">${this.pending.map((f, i) => `<span class="cv-pending-file">${f.preview ? `<img src="${esc(f.preview)}" alt="" />` : '📎'}<small>${esc(f.name)}</small><button type="button" data-cv="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></span>`).join('')}${this.uploading ? `<span class="muted small">Uploading ${this.uploading}…</span>` : ''}</div>` : ''}
         ${this.emojiOpen ? `<div class="cv-emoji" role="listbox" aria-label="Emoji">${EMOJI.map((e) => `<button type="button" data-cv="emoji" data-e="${e}">${e}</button>`).join('')}</div>` : ''}
-        <div class="cv-compose-row">
+        ${this.voice ? `<div class="cv-compose-row cv-recording"><button type="button" class="icon-btn" data-cv="voice-cancel" aria-label="Cancel voice message">🗑</button><span class="cv-rec-dot" aria-hidden="true"></span><span class="cv-rec-time">${clock(Date.now() - this.voice.started)}</span><span class="muted small">Recording…</span><button type="button" class="btn primary cv-send" data-cv="voice-send" aria-label="Send voice message">➤</button></div>` : `<div class="cv-compose-row">
           <label class="icon-btn cv-attach" title="Send photos or files" aria-label="Send photos or files"><input type="file" multiple hidden data-cv-file />📎</label>
           <button type="button" class="icon-btn" data-cv="emoji-toggle" title="Emoji" aria-label="Emoji">😊</button>
           <textarea rows="1" maxlength="4000" placeholder="Aa" aria-label="Message">${esc(this.draft)}</textarea>
-          ${this.draft.trim() || this.pending.length ? `<button class="btn primary cv-send" type="submit"${this.sending || this.uploading ? ' disabled' : ''} aria-label="Send">➤</button>` : `<button type="button" class="cv-send quick" data-cv="quick-like" aria-label="Send a like">👍</button>`}
-        </div>
+          ${this.draft.trim() || this.pending.length ? `<button class="btn primary cv-send" type="submit"${this.sending || this.uploading ? ' disabled' : ''} aria-label="Send">➤</button>` : this.quickButtons()}
+        </div>`}
       </form>`;
     this.scrollToEnd();
     this.autosize();
@@ -178,6 +185,12 @@ export class ConversationView {
     if (!input) return;
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  }
+
+  // With nothing typed: record a voice message, or send a 👍.
+  quickButtons() {
+    const mic = navigator.mediaDevices?.getUserMedia && window.MediaRecorder ? '<button type="button" class="cv-send quick cv-mic" data-cv="voice-start" aria-label="Record a voice message" title="Record a voice message">🎙</button>' : '';
+    return `<span class="cv-send cv-quick-group">${mic}<button type="button" class="cv-send quick" data-cv="quick-like" aria-label="Send a like">👍</button></span>`;
   }
 
   snippet(m) {
@@ -224,13 +237,20 @@ export class ConversationView {
         let content;
         if (m.deleted) content = `<p class="cv-unsent">${mine ? 'You unsent a message' : 'Message unsent'}</p>`;
         else if (m.kind === 'meeting') {
-          content = `<div class="chat-meeting"><span aria-hidden="true">📹</span><span><b>Video meeting</b><small>${esc(m.body)}</small></span><a class="btn small primary" href="#/meet/${encodeURIComponent(m.meetingId)}">Join</a></div>`;
+          content = `<div class="chat-meeting"><span aria-hidden="true">📹</span><span><b>Video meeting</b><small>${esc(m.body)}</small></span>${this.joinButton(m.meetingId)}</div>`;
+        } else if (m.kind === 'call') {
+          // A DM call's summary ("Missed voice call", "Voice call · 2:31"), or a group call to join.
+          const group = this.conversation?.type !== 'dm';
+          const missed = /^Missed|declined$/.test(m.body || '');
+          content = `<div class="chat-call${missed ? ' missed' : ''}"><span class="chat-call-icon" aria-hidden="true">${m.video ? '📹' : '📞'}</span><span><b>${esc(m.body)}</b><small>${m.video ? 'Video' : 'Voice'}</small></span>${group ? this.joinButton(m.meetingId) : this.onCall ? `<button type="button" class="btn small" data-cv="call-back" data-video="${m.video ? '1' : '0'}">Call back</button>` : ''}</div>`;
         } else {
           const images = m.attachments.filter((a) => IMAGE_RE.test(a.type));
-          const files = m.attachments.filter((a) => !IMAGE_RE.test(a.type));
+          const voices = m.attachments.filter((a) => AUDIO_RE.test(a.type));
+          const files = m.attachments.filter((a) => !IMAGE_RE.test(a.type) && !AUDIO_RE.test(a.type));
           content = `
             ${m.replyTo ? `<a class="cv-quote" href="#" data-cv="jump" data-id="${esc(m.replyTo.id)}"><b>${esc(this.nameOf(m.replyTo.authorEmail))}</b>${esc(m.replyTo.snippet)}</a>` : ''}
             ${images.length ? `<div class="cv-images n${Math.min(images.length, 3)}">${images.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name)}" loading="lazy" /></a>`).join('')}</div>` : ''}
+            ${voices.map((a) => `<div class="cv-voice"><span aria-hidden="true">🎙</span><audio controls preload="metadata" src="${esc(a.url)}"></audio></div>`).join('')}
             ${files.map((a) => `<a class="cv-file" href="${esc(a.download)}" target="_blank" rel="noopener"><span aria-hidden="true">📄</span><span><b>${esc(a.name)}</b><small>${sizeText(a.size)}</small></span></a>`).join('')}
             ${m.body ? `<p>${esc(m.body).replace(/https:\/\/[^\s<]+[^\s<.,;:!?)]/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)}</p>` : ''}`;
         }
@@ -254,6 +274,62 @@ export class ConversationView {
           </div>`;
       })
       .join('');
+  }
+
+  joinButton(meetingId) {
+    if (!meetingId) return '';
+    return this.onJoinMeeting
+      ? `<button type="button" class="btn small primary" data-cv="join-meeting" data-meeting="${this.esc(meetingId)}">Join</button>`
+      : `<a class="btn small primary" href="#/meet/${encodeURIComponent(meetingId)}">Join</a>`;
+  }
+
+  // ---------------------------------------------------------------- voice messages
+
+  async startVoice() {
+    if (this.voice) return;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch {
+      return this.toast('Microphone blocked. Allow it in your browser’s site settings to record.');
+    }
+    const mimeType = VOICE_TYPES.find((t) => window.MediaRecorder.isTypeSupported?.(t));
+    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.start(250);
+    this.voice = { rec, stream, chunks, started: Date.now(), timer: setInterval(() => {
+      const node = this.el?.querySelector('.cv-rec-time');
+      if (node && this.voice) node.textContent = clock(Date.now() - this.voice.started);
+      // Voice messages stop at 15 minutes.
+      if (this.voice && Date.now() - this.voice.started > 15 * 60_000) this.stopVoice(true);
+    }, 500) };
+    navigator.vibrate?.(30);
+    this.render();
+  }
+
+  async stopVoice(send) {
+    const voice = this.voice;
+    if (!voice) return;
+    this.voice = null;
+    clearInterval(voice.timer);
+    await new Promise((resolve) => {
+      voice.rec.onstop = resolve;
+      if (voice.rec.state === 'inactive') resolve();
+      else voice.rec.stop();
+    });
+    for (const track of voice.stream.getTracks()) track.stop();
+    if (!send) return this.render();
+    const type = (voice.rec.mimeType || voice.chunks[0]?.type || 'audio/webm').split(';')[0];
+    const blob = new Blob(voice.chunks, { type });
+    if (Date.now() - voice.started < 800 || !blob.size) {
+      this.toast('Tap 🎙, talk, then tap ➤ to send.');
+      return this.render();
+    }
+    const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.');
+    await this.upload([new File([blob], `Voice message ${stamp}.${ext}`, { type })]);
+    if (this.pending.length) await this.send('');
   }
 
   menuHtml(m, mine) {
@@ -280,6 +356,7 @@ export class ConversationView {
 
   async send(text) {
     const body = (text ?? this.draft).trim();
+    if (text === '' && !this.pending.length) return;
     if ((!body && !this.pending.length) || this.sending || this.uploading) return;
     this.sending = true;
     try {
@@ -423,6 +500,11 @@ export class ConversationView {
       return;
     }
     if (action === 'quick-like') return this.send('👍');
+    if (action === 'voice-start') return this.startVoice();
+    if (action === 'voice-send') return this.stopVoice(true);
+    if (action === 'voice-cancel') return this.stopVoice(false);
+    if (action === 'call-back') return this.onCall?.(target.dataset.video === '1');
+    if (action === 'join-meeting') return this.onJoinMeeting?.(target.dataset.meeting);
   }
 
   onInput(event) {
@@ -435,7 +517,7 @@ export class ConversationView {
       const old = this.el.querySelector('.cv-send');
       old.outerHTML = this.draft.trim()
         ? '<button class="btn primary cv-send" type="submit" aria-label="Send">➤</button>'
-        : '<button type="button" class="cv-send quick" data-cv="quick-like" aria-label="Send a like">👍</button>';
+        : this.quickButtons();
     }
     if (this.draft.trim() && Date.now() - this.lastTypingPing > TYPING_PING_MS) {
       this.lastTypingPing = Date.now();

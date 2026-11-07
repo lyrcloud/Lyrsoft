@@ -1,4 +1,5 @@
-// Builds lyrsoft.com (lyrsoft/) into dist-lyrsoft/: the company website at / and the Lyrsoft Work app at /app/.
+// Builds lyrsoft.com (lyrsoft/) into dist-lyrsoft/: the company website at /, the Lyrsoft Work app at /app/
+// and Lyr Chat at /chat/ (its service worker, lyrchat-sw.js, is served unhashed as /chat/sw.js).
 // Assets go under /assets/<content hash>/ so they can be cached forever.
 // The Cognito helpers (src/auth.js, src/cognito.js) are copied alongside, and config.js carries the API URL
 // from LYRSOFT_API_BASE (set by scripts/deploy-lyrsoft.sh from the lyrsoft-work-api stack) and the optional
@@ -30,8 +31,11 @@ await mkdir(join(OUT, assetBase), { recursive: true });
 for (const [name, body] of files) await writeFile(join(OUT, assetBase, name), body);
 // The company website is the home page; the app lives at /app/. /callback.html stays at the root
 // because it is the redirect URL registered with Cognito.
-const pages = { 'home.html': 'index.html', 'index.html': 'app/index.html', 'callback.html': 'callback.html', '404.html': '404.html' };
+const pages = { 'home.html': 'index.html', 'index.html': 'app/index.html', 'lyrchat.html': 'chat/index.html', 'callback.html': 'callback.html', '404.html': '404.html' };
 await mkdir(join(OUT, 'app'), { recursive: true });
+await mkdir(join(OUT, 'chat'), { recursive: true });
+// A service worker's scope is its folder, so it can't live under /assets/.
+await copyFile(join('lyrsoft', 'lyrchat-sw.js'), join(OUT, 'chat', 'sw.js'));
 for (const [source, target] of Object.entries(pages)) {
   let html = await readFile(join('lyrsoft', source), 'utf8');
   // Pages reference assets as "/app/<file>"; links to the app itself ("/app/") are left alone.

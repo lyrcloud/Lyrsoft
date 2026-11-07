@@ -1,0 +1,704 @@
+/* Lyr Chat (lyrsoft.com/chat/): phone-first layout on top of app.css (theme tokens, conversations,
+   call room). One column on phones; chats beside the open conversation from 820px. */
+
+body.lyrchat {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  overscroll-behavior: none;
+}
+
+.lyrchat #app {
+  height: 100dvh;
+}
+
+.lc {
+  display: grid;
+  grid-template-columns: 1fr;
+  height: 100dvh;
+}
+
+.lc-side,
+.lc-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.lc-main {
+  display: none;
+}
+
+.lc.show-main .lc-side {
+  display: none;
+}
+
+.lc.show-main .lc-main {
+  display: flex;
+}
+
+@media (min-width: 820px) {
+  .lc {
+    grid-template-columns: minmax(320px, 380px) 1fr;
+  }
+  .lc-side {
+    border-right: 1px solid var(--line);
+  }
+  .lc-main,
+  .lc.show-main .lc-side {
+    display: flex;
+  }
+  .lc-back {
+    display: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------- headers, tabs, rows */
+
+.lc-head,
+.lc-conv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.lc-head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.lc-head-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.lc-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font-size: 1.15rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lc-icon:hover {
+  background: var(--hover);
+}
+
+.lc-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lc-search {
+  padding: 8px 12px;
+}
+
+.lc-search input,
+.lc-new input,
+.lc-group input[name='name'] {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 21px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.lc-list,
+.lc-settings,
+.lc-pick {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.lc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lc-row:hover,
+.lc-row.current {
+  background: var(--hover);
+}
+
+.lc-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lc-row-main b,
+.lc-row-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-row-main b {
+  font-weight: 650;
+}
+
+.lc-row-main small {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lc-row.unread .lc-row-main b,
+.lc-row.unread .lc-row-main small {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.lc-row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.lc-av-wrap {
+  position: relative;
+  flex: none;
+}
+
+.avatar.lc-av {
+  width: 48px;
+  height: 48px;
+  font-size: 1.15rem;
+}
+
+.avatar.lc-av.group {
+  background: var(--brand-tint);
+  color: var(--text);
+  font-size: 1.3rem;
+}
+
+.avatar.lc-av.big {
+  width: 64px;
+  height: 64px;
+  font-size: 1.5rem;
+}
+
+.avatar.lc-av.huge {
+  width: 112px;
+  height: 112px;
+  font-size: 2.6rem;
+}
+
+.lc-conv-head .avatar.lc-av {
+  width: 40px;
+  height: 40px;
+  font-size: 1rem;
+}
+
+.lc-online {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.lc-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.lc-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.lc-section {
+  margin: 14px 16px 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lc-note {
+  margin: 4px 16px 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lc-list > .btn {
+  margin: 4px 16px;
+}
+
+.lc-tabs {
+  display: flex;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.lc-tab {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 0 7px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.lc-tab span {
+  font-size: 1.25rem;
+  filter: grayscale(1);
+  opacity: 0.8;
+}
+
+.lc-tab.on {
+  color: var(--brand);
+}
+
+.lc-tab.on span {
+  filter: none;
+  opacity: 1;
+}
+
+.lc-tab .lc-badge {
+  position: absolute;
+  top: 3px;
+  left: calc(50% + 6px);
+}
+
+.lc-fab {
+  position: absolute;
+  right: 18px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--brand);
+  box-shadow: var(--shadow-md);
+  color: #fff;
+  font-size: 1.4rem;
+  text-decoration: none;
+}
+
+.lc-side {
+  position: relative;
+}
+
+@media (min-width: 820px) {
+  .lc-fab {
+    display: none;
+  }
+}
+
+.lc-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.lc-welcome h2,
+.lc-join h2 {
+  margin: 0;
+  color: var(--text);
+}
+
+.lc-join-icon {
+  font-size: 3rem;
+}
+
+.lc-hint,
+.lc-invite,
+.lc-request {
+  margin: 8px 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--brand-tint);
+  font-size: 0.9rem;
+}
+
+.lc-request p,
+.lc-invite p {
+  margin: 0 0 8px;
+}
+
+.lc-request-buttons,
+.lc-invite-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lc-new,
+.lc-group {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+}
+
+.lc-group {
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lc-pick .lc-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--brand);
+}
+
+.lc-call .lc-call-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.lc-call.missed .lc-row-main b,
+.lc-call.missed .lc-row-main small {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.lc-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.lc-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.lc-card h2 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.lc-card p {
+  margin: 0 0 8px;
+}
+
+.lc-me {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lc-me div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lc-me small {
+  color: var(--muted);
+}
+
+.lc-blocked {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lc-blocked li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+/* ---------------------------------------------------------------- the open conversation */
+
+.lc-conv-head {
+  padding-left: 8px;
+}
+
+.lc-conv-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lc-conv-title b,
+.lc-conv-title small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-conv-title small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.lc-conv-host {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lc-conv-host .cv-compose {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.lc-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.lc-menu button,
+.lc-menu a {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lc-menu button:hover,
+.lc-menu a:hover {
+  background: var(--hover);
+}
+
+/* ---------------------------------------------------------------- calls */
+
+.lc-banner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 40;
+  transform: translateX(-50%);
+}
+
+.lc-calling {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px 8px 14px;
+  border-radius: 24px;
+  background: rgba(16, 14, 46, 0.92);
+  box-shadow: var(--shadow);
+  color: #fff;
+  transform: translateX(-50%);
+}
+
+.lc-calling small {
+  opacity: 0.7;
+}
+
+.lc-pulse {
+  animation: lc-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes lc-pulse {
+  50% {
+    transform: scale(1.25);
+  }
+}
+
+.lc-ring {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #2b1f7a 0%, #100e2e 70%);
+  color: #fff;
+}
+
+.lc-ring-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.lc-ring-card .avatar {
+  animation: lc-ring 1.6s ease-out infinite;
+}
+
+@keyframes lc-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(139, 124, 255, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 36px rgba(139, 124, 255, 0);
+  }
+}
+
+.lc-ring-what {
+  margin: 18px 0 0;
+  opacity: 0.8;
+}
+
+.lc-ring-card h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.lc-ring-buttons {
+  display: flex;
+  gap: 28px;
+  margin-top: 48px;
+}
+
+.lc-ring-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lc-ring-btn span {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  font-size: 1.7rem;
+}
+
+.lc-ring-btn.decline span {
+  background: #e5484d;
+  transform: rotate(135deg);
+}
+
+.lc-ring-btn.answer span {
+  background: #1fbf75;
+}
+
+/* ---------------------------------------------------------------- sign-in */
+
+.lc-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px 16px;
+}
+
+.lc-signin-intro {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.lc-signin-intro h1 {
+  margin: 8px 0 4px;
+}
+
+.lc-signin-intro p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.lc-dialog .lc-pick {
+  max-height: 50vh;
+}
+
+.lc-dialog form {
+  padding: 16px;
+}
+
+.lc-ring[hidden],
+.lc-calling[hidden],
+.lc-banner[hidden] {
+  display: none !important;
+}

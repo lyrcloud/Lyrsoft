@@ -25,7 +25,8 @@
 //
 // Public routes: POST /public/contact, the lyrsoft.com contact form (each enquiry becomes an
 // item on the "Website leads" board and a conversation in the hello@lyrsoft.com Lyrsoft Mail inbox),
-// POST /public/lyrbot, the site's help assistant (lyrbot.mjs), and GET|POST /public/unsubscribe,
+// POST /public/lyrbot, the site's help assistant (lyrbot.mjs), POST /public/call ("Decline" on a
+// Lyr Chat call notification, signed per call and person), and GET|POST /public/unsubscribe,
 // the signed link in product update emails. Lyrsoft Marketing adds /public/m/open|click|unsubscribe
 // (campaign tracking and unsubscribe links) and /public/subscribe (signup forms), served through
 // lyrsoft.com/public/*, and handles non-HTTP events: its own background sends, the one-minute tick
@@ -81,6 +82,7 @@ import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { channelId, registerCollabRoutes } from './collab.mjs';
 import { registerContactRoutes } from './contacts.mjs';
+import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
 import {
@@ -825,7 +827,8 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
 
 registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
 
-registerCollabRoutes(route, {
+const push = createPush({ db: { put, del, queryAll }, getSecret: () => getAppSecret(), now });
+const collab = registerCollabRoutes(route, {
   db: { get, put, del, queryAll },
   HttpError,
   openWorkspace,
@@ -841,6 +844,9 @@ registerCollabRoutes(route, {
   newId,
   addWorkspaceMember,
   countUse: (key, period) => countUse(key, period),
+  push,
+  getSecret: () => getAppSecret(),
+  reportTo: SUPER_ADMIN_EMAIL,
 });
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
@@ -1029,6 +1035,11 @@ export const handler = async (event) => {
     if (method === 'POST' && path === '/public/contact') return await submitContact(event);
     if (method === 'POST' && path === '/public/lyrbot') return await lyrbotChat(event);
     if ((method === 'GET' || method === 'POST') && path === '/public/unsubscribe') return await unsubscribe(event, method);
+    if (method === 'POST' && path === '/public/call') {
+      const body = parseBody(event);
+      if (!body) throw new HttpError(400, 'Invalid JSON body.');
+      return json(200, await collab.publicCall(body));
+    }
     if (path.startsWith('/public/m/') || path === '/public/subscribe') {
       const params = new URLSearchParams(event.rawQueryString || '');
       if (method === 'GET' && path === '/public/m/open') return await marketing.publicOpen(params);

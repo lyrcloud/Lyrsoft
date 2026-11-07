@@ -5879,3 +5879,20 @@ button.app-btn:disabled {
   flex: 1;
   min-width: 0;
 }
+
+/* Contacts: Find on social */
+.find-results { display: grid; gap: 8px; }
+.find-person { display: flex; align-items: center; gap: 10px; margin: 0; }
+.find-person img { border-radius: 50%; }
+.find-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.find-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.find-list li > span:not(.social-icon) { flex: 1; min-width: 0; display: grid; }
+.find-list a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.find-by { margin: 6px 0 4px; }

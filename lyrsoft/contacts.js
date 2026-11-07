@@ -10,6 +10,7 @@ import {
   fromDeviceContact,
   fromGooglePerson,
   messageLink,
+  networkOfUrl,
   PHONE_APPS,
   parseContactsFile,
   SOCIAL_NETWORKS,
@@ -20,10 +21,11 @@ import {
   toOutlookCSV,
   toVCard,
 } from './contacts-formats.js';
+import { findAccounts, phoneChecks, searchLinks } from './contacts-find.js';
 
-const SHOWN_MAX = 400;
+const SHOWN_MAX = 400; // rows drawn at once; search narrows the rest
 // Google Meet's camera shape, drawn small in its brand colours.
-const GMEET_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#00832d" d="M3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path fill="#00ac47" d="M15 10.5 20.4 6.6a.4.4 0 0 1 .6.3v10.2a.4.4 0 0 1-.6.3L15 13.5z"/><path fill="#ffba00" d="M3 8a2 2 0 0 1 2-2h4v4H3z"/><path fill="#2684fc" d="M3 14h6v4H5a2 2 0 0 1-2-2z"/></svg>'; // rows drawn at once; search narrows the rest
+const GMEET_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#00832d" d="M3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path fill="#00ac47" d="M15 10.5 20.4 6.6a.4.4 0 0 1 .6.3v10.2a.4.4 0 0 1-.6.3L15 13.5z"/><path fill="#ffba00" d="M3 8a2 2 0 0 1 2-2h4v4H3z"/><path fill="#2684fc" d="M3 14h6v4H5a2 2 0 0 1-2-2z"/></svg>';
 const IMPORT_CHUNK = 400;
 const LABELS = ['mobile', 'home', 'work', 'main', 'other'];
 const SOURCE_NAMES = {
@@ -182,7 +184,7 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
       ${actions ? `<div class="contact-actions">${actions}</div>` : ''}
       <div class="contact-apps">${appButtons}${reachable(c) ? `
         <button type="button" class="app-btn" data-click="contacts-gmeet" data-id="${esc(c.id)}" title="Start or schedule a Google Meet with ${esc(c.name)}"><span class="social-icon net-gmeet" aria-hidden="true">${GMEET_ICON}</span><span class="app-btn-text"><b>Google Meet</b><small>Meet now or schedule</small></span></button>
-        <button type="button" class="app-btn" data-click="contacts-teams" data-id="${esc(c.id)}"${email ? '' : ' disabled title="Teams needs an email address"'} title="Chat, call or meet ${esc(c.name)} in Microsoft Teams"><span class="social-icon net-teams" aria-hidden="true">T</span><span class="app-btn-text"><b>Teams</b><small>${email ? 'Chat, call or meet' : 'Needs an email'}</small></span></button>` : ''}<button type="button" class="app-btn add" data-click="contacts-apps" data-id="${esc(c.id)}" title="Telegram, Viber, Signal by phone number, or add Instagram, Facebook, X, Discord…"><span class="social-icon" aria-hidden="true">＋</span><span class="app-btn-text"><b>Apps</b><small>${c.phones.length ? 'More ways to reach' : 'Add a profile'}</small></span></button></div>
+        <button type="button" class="app-btn" data-click="contacts-teams" data-id="${esc(c.id)}"${email ? '' : ' disabled title="Teams needs an email address"'} title="Chat, call or meet ${esc(c.name)} in Microsoft Teams"><span class="social-icon net-teams" aria-hidden="true">T</span><span class="app-btn-text"><b>Teams</b><small>${email ? 'Chat, call or meet' : 'Needs an email'}</small></span></button>` : ''}<button type="button" class="app-btn find" data-click="contacts-find" data-id="${esc(c.id)}" title="Find ${esc(c.name)}’s social accounts from their email, phone number or name"><span class="social-icon" aria-hidden="true">🔎</span><span class="app-btn-text"><b>Find</b><small>Social accounts</small></span></button><button type="button" class="app-btn add" data-click="contacts-apps" data-id="${esc(c.id)}" title="Telegram, Viber, Signal by phone number, or add Instagram, Facebook, X, Discord…"><span class="social-icon" aria-hidden="true">＋</span><span class="app-btn-text"><b>Apps</b><small>${c.phones.length ? 'More ways to reach' : 'Add a profile'}</small></span></button></div>
       <div class="contact-tools">
         <button class="btn small" data-click="contacts-edit" data-id="${esc(c.id)}">✎ Edit</button>
         <button class="btn small" data-click="contacts-favorite" data-id="${esc(c.id)}">${c.favorite ? '☆ Unfavourite' : '★ Favourite'}</button>
@@ -940,6 +942,81 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
     }
   }
 
+  // ---------------------------------------------------------------- Find on social
+  // Accounts the person published themselves (Gravatar's verified accounts, GitHub's public email) are
+  // looked up straight from the browser and can be added in one tap; phone numbers are checked by opening
+  // the messaging apps at the number; everything else opens the network's own search. See contacts-find.js.
+
+  const netIcon = (network) => `<span class="social-icon net-${esc(network)}" aria-hidden="true">${(SOCIAL_NETWORKS[network] || SOCIAL_NETWORKS.other).icon}</span>`;
+  const shortUrl = (u) => String(u).replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+
+  async function findDialog(c) {
+    const emails = c.emails.map((e) => e.value);
+    const phones = c.phones.map((p) => p.value);
+    const checks = phones.slice(0, 3).map((p) => `
+      <p class="muted small find-by">📱 ${esc(p)}</p>
+      <div class="contact-apps">${phoneChecks(p).map((a) => `<a class="app-btn" href="${esc(a.href)}" target="_blank" rel="noopener">${netIcon(a.network)}<span class="app-btn-text"><b>${esc(SOCIAL_NETWORKS[a.network].label)}</b><small>Is ${esc(firstName(c))} on it?</small></span></a>`).join('')}</div>`).join('');
+    const searches = searchLinks(c).map((l) => `<a class="app-btn" href="${esc(l.href)}" target="_blank" rel="noopener" title="Search ${esc(l.label)} for ${esc(l.by)}">${netIcon(l.network)}<span class="app-btn-text"><b>${esc(l.label)}</b><small>${esc(l.by)}</small></span></a>`).join('');
+    const added = [];
+    await openDialog(`
+      <form class="apps-dialog find-dialog"><h2>🔎 Find ${esc(c.name)} on social</h2>
+        <h3 class="apps-h">Linked to ${emails.length ? esc(emails.length > 1 ? 'their emails' : emails[0]) : 'their email'}</h3>
+        <div class="find-results" aria-live="polite">${emails.length ? '<p class="muted small">Looking up Gravatar and GitHub…</p>' : '<p class="muted small">Add an email address to look up the accounts they’ve linked to it.</p>'}</div>
+        ${checks ? `<h3 class="apps-h">By phone number</h3><p class="muted small">Opens the app at the number: it shows whether they’re on it, as far as their privacy settings allow.</p>${checks}` : ''}
+        ${searches ? `<h3 class="apps-h">Search each network</h3><div class="contact-apps">${searches}</div>` : ''}
+        <h3 class="apps-h">Found them?</h3>
+        <label>Paste their profile link<span class="link-row"><input name="link" placeholder="https://instagram.com/…" autocomplete="off" /><button type="button" class="btn" data-add-link>Add</button></span></label>
+        <p class="muted small">Only accounts people made public are looked up. Lyrsoft doesn’t test sign-up or password-reset pages to see where an email or number is registered.</p>
+        <div class="row end"><button class="btn primary">Done</button></div>
+      </form>`, {
+      wide: true,
+      setup(node, done) {
+        const form = node.querySelector('form');
+        const box = node.querySelector('.find-results');
+        const save = async (account, button) => {
+          try {
+            if (button) button.disabled = true;
+            await patchContact(c, { socials: [...c.socials, { network: account.network, value: account.value }] });
+            added.push(account);
+            if (button) button.textContent = '✓ Added';
+            toast(`Added ${SOCIAL_NETWORKS[account.network]?.label || 'profile'}`);
+          } catch (error) {
+            if (button) button.disabled = false;
+            toast(error.message);
+          }
+        };
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(true);
+        });
+        node.querySelector('[data-add-link]').addEventListener('click', async () => {
+          const input = form.elements.link;
+          let url = input.value.trim();
+          if (!url) return input.focus();
+          if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+          const network = networkOfUrl(url);
+          if (!network) return toast('That isn’t a social profile link Lyrsoft knows. Add it as a website from Edit.');
+          await save({ network, value: url });
+          input.value = '';
+        });
+        if (!emails.length) return;
+        findAccounts(c).then(({ found, sources }) => {
+          if (!node.isConnected) return;
+          const people = sources.filter((s) => s.ok && s.name);
+          const failed = sources.filter((s) => !s.ok);
+          box.innerHTML = `
+            ${people.map((s) => `<p class="find-person">${s.avatar ? `<img src="${esc(s.avatar)}?s=64" alt="" width="32" height="32" />` : ''}<span><b>${esc(s.name)}</b> <small class="muted">${esc(s.source)} profile for ${esc(s.email)}${s.profile ? ` · <a href="${esc(s.profile)}" target="_blank" rel="noopener">view</a>` : ''}</small></span></p>`).join('')}
+            ${found.length
+              ? `<ul class="find-list">${found.map((a, i) => `<li>${netIcon(a.network)}<span><b>${esc(a.label || SOCIAL_NETWORKS[a.network]?.label || a.network)}</b><a href="${esc(a.value)}" target="_blank" rel="noopener">${esc(shortUrl(a.value))}</a><small class="muted">via ${esc(a.via)}</small></span><button type="button" class="btn small" data-add="${i}">＋ Add</button></li>`).join('')}</ul>`
+              : `<p class="muted small">No public accounts are linked to ${emails.length > 1 ? 'these emails' : 'this email'}${sources.some((s) => s.ok && s.accounts.length) ? ' that aren’t already on this contact' : ''}. Try the searches below.</p>`}
+            ${failed.length ? `<p class="muted small">Couldn’t check ${esc([...new Set(failed.map((s) => `${s.source}: ${s.error}`))].join('; '))}.</p>` : ''}`;
+          box.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => save(found[Number(b.dataset.add)], b)));
+        });
+      },
+    });
+    if (added.length) render();
+  }
+
   // ---------------------------------------------------------------- Google Meet and Microsoft Teams
   // Both are opened through their public links: Teams can open a chat, a call or a new-meeting form with
   // the contact filled in; Google Meet starts a meeting (meet.google.com/new) or a Google Calendar event
@@ -1074,6 +1151,10 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
     'contacts-teams': (target) => {
       const c = byId(target.dataset.id);
       if (c) teams(c);
+    },
+    'contacts-find': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) findDialog(c);
     },
     'contacts-apps': (target) => {
       const c = byId(target.dataset.id);

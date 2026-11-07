@@ -5,6 +5,7 @@ import { createAccount } from './account.js';
 import { createChat } from './chat.js';
 import { createContacts } from './contacts.js';
 import { createMarketing } from './marketing.js';
+import { createUI, searchButton, themeButton } from './ui.js';
 import { createMeetings } from './meet.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
 import { avatarHtml } from './avatar.js';
@@ -138,6 +139,30 @@ const chat = createChat({ api, esc, toast, render: () => render(), go, initial, 
 const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args), chat });
 const contacts = createContacts({ api, esc, toast, render: () => render(), go, initial, formatDateTime });
 const marketing = createMarketing({ api, esc, toast, render: () => render(), go, formatDateTime, getMe: () => state.me, getWs: () => state.ws });
+// Everywhere the command palette (Ctrl/⌘ K) can jump to.
+function paletteTargets() {
+  const me = state.me;
+  if (!me) return [];
+  const out = [
+    { group: 'Pages', label: 'Home: my workspaces', icon: '🏠', href: '#/' },
+    { group: 'Pages', label: 'Messages', icon: '💬', href: '#/chat' },
+    { group: 'Pages', label: 'Meetings', icon: '📹', href: '#/meetings' },
+    { group: 'Pages', label: 'Contacts', icon: '📇', href: '#/contacts' },
+    { group: 'Pages', label: 'My profile', icon: '👤', href: '#/profile' },
+  ];
+  if (me.globalRole !== 'user') out.push({ group: 'Pages', label: 'Admin console', icon: '🛡', href: '#/admin' });
+  const current = state.ws?.workspace.id;
+  const workspaces = [...me.workspaces].sort((a, b) => (b.id === current) - (a.id === current));
+  for (const w of workspaces) out.push({ group: 'Marketing', label: `Marketing · ${w.name}`, icon: '📣', href: `#/w/${encodeURIComponent(w.id)}/marketing`, marketing: true });
+  for (const b of state.ws?.boards || []) out.push({ group: 'Boards', label: b.name, hint: state.ws.workspace.name, icon: '▦', href: `#/w/${encodeURIComponent(current)}/b/${encodeURIComponent(b.id)}` });
+  for (const w of workspaces) out.push({ group: 'Workspaces', label: w.name, icon: '🏢', href: `#/w/${encodeURIComponent(w.id)}` });
+  for (const m of mail.mailboxes()) out.push({ group: 'Mailboxes', label: m.displayName || m.address, hint: m.address, icon: '✉', href: `#/mail/${encodeURIComponent(m.address)}` });
+  out.push({ group: 'Actions', label: 'Switch theme (light / dark / device)', icon: '🌓', run: () => ui.clickActions['ui-theme']() });
+  out.push({ group: 'Actions', label: 'Keyboard shortcuts', icon: '⌨', run: () => ui.clickActions['ui-shortcuts']() });
+  return out;
+}
+const ui = createUI({ go, targets: paletteTargets, toast, rerender: () => render() });
+
 const isAccountView = () => route.view === 'profile' || route.view === 'admin';
 const isCollabView = () => ['chat', 'meetings', 'meet'].includes(route.view);
 
@@ -238,7 +263,9 @@ function topbar() {
     <header class="topbar">
       <button class="icon-btn menu-toggle" data-click="toggle-sidebar" aria-label="Toggle navigation">☰</button>
       <span class="crumb">${esc(crumb())}</span>
+      ${me ? searchButton() : ''}
       <div class="topbar-right">
+        ${themeButton()}
         ${staff}
         ${me ? `<a class="avatar-link" href="#/profile" title="My profile (${esc(me.email)})">${avatarHtml(me.profile || me)}</a>` : ''}
         <button class="btn ghost small" data-click="sign-out">Sign out</button>
@@ -277,13 +304,14 @@ function render() {
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content${route.view === 'chat' || route.view === 'contacts' || route.view === 'marketing' ? ' wide' : ''}">${meetings.banner()}${content}</main>
+      <main class="content${['chat', 'contacts', 'marketing', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
   mail.afterRender();
   chat.afterRender();
   meetings.afterRender();
+  ui.afterRender(location.hash.split('?')[0] || '#/');
   document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
@@ -969,7 +997,7 @@ const formActions = {
   },
 };
 
-Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions, contacts.clickActions, marketing.clickActions);
+Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions, contacts.clickActions, marketing.clickActions, ui.clickActions);
 Object.assign(changeActions, account.changeActions, mail.changeActions, contacts.changeActions, marketing.changeActions);
 const inputActions = { ...account.inputActions, ...mail.inputActions, ...chat.inputActions, ...contacts.inputActions, ...marketing.inputActions };
 Object.assign(formActions, mail.formActions, account.formActions, chat.formActions, meetings.formActions, marketing.formActions);

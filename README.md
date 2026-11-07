@@ -4,7 +4,7 @@ Everything behind **https://lyrsoft.com**:
 
 - **Website** (`/`): the company site; its contact form files each message as a lead in Lyrsoft Work and emails it to hello@lyrsoft.com.
 - **Lyrsoft Work** (`/app/`): workspaces, boards and items.
-- **Lyrsoft Mail**: shared inboxes (support@, hello@ …) for every mail domain, received and sent through Amazon SES. Folders: Inbox, Closed, Spam (mail that fails SES spam checks) and Trash; Delete moves to Trash, where conversations can be restored, and Delete forever / Empty trash / Empty spam remove them and their stored files for good. Tick conversations to act on many at once.
+- **Lyrsoft Mail**: opens as one window with a tab per mailbox (photo, name, unread count) and a Manage tab for the super admin. Each mailbox has a profile its members can edit: photo, display name, colour, description and a signature added to every email sent from it (`PATCH /mail/mailboxes/{address}/profile`). Shared inboxes (support@, hello@ …) for every mail domain, received and sent through Amazon SES. Folders: Inbox, Closed, Spam (mail that fails SES spam checks) and Trash; Delete moves to Trash, where conversations can be restored, and Delete forever / Empty trash / Empty spam remove them and their stored files for good. Tick conversations to act on many at once.
 - **Lyrbot**: the website's help assistant, as on Lyrshop and Lyrtrip. A robot button opens a chat answered by Claude (`api/work/lyrbot.mjs`) from the facts in its prompt, with WhatsApp and email for a person. Capped at 20 questions per visitor per hour and 1,500 per day for the whole site. It uses the Anthropic API key in the `lyrshop/anthropic` secret (stack parameter `AnthropicSecretName`; blank turns it off).
 
 Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and password** (`lyrsoft/signin.js`, `src/cognito.js`) confirmed with a 6-digit code that Cognito emails (sent from no-reply@lyrcloud.com, since the pool is shared). GitHub sign-ins are refused because GitHub emails aren't proof of ownership. The super admin is **lyrclouds@gmail.com** (stack parameter `SuperAdminEmail`); it is never stored, but derived on every request from a Google sign-in with that email, whatever case Cognito gives the provider name.
@@ -42,6 +42,10 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Mobile verification:** `POST /me/phone` texts a 6-digit code through Amazon SNS and `POST /me/phone/verify` checks it; only an HMAC of the code is stored (key in the `lyrsoft/app` secret). Limits: 5 codes per person and 200 for the site per day. The AWS account's SMS is still in the **SNS sandbox** ($1/month spend limit), so codes only reach numbers verified in the SNS console until production SMS access is granted.
 - **Emails** (from `Lyrsoft <no-reply@lyrsoft.com>`, stack parameter `MailFrom`, replies to hello@lyrsoft.com): a welcome email on first sign-in, and product updates the super admin sends from the admin console. Each update has a signed one-click unsubscribe link (`/public/unsubscribe`), and people can switch updates off in their profile.
 - **Admin console** (`/app/#/admin`, admins and the super admin): every account with sign-in method, mobile, role and last sign-in. Admins disable regular users; only the super admin makes or removes admins and emails updates. Admins made in Lyrcloud are admins here too.
+
+## Look and feel
+
+The app uses Plus Jakarta Sans with bold headings, gradient accents, page and dialog animations, and stat numbers that count up (styles at the end of `lyrsoft/app.css`). `lyrsoft/ui.js` adds a command palette (**Ctrl/⌘ K**) that jumps to any page, workspace, board, mailbox or Marketing, keyboard shortcuts (**?** lists them: `/` search, `g` then `h`/`m`/`k`/`c`/`t`/`p`), and a light / dark / device theme switch in the top bar (**Shift T**), remembered in the browser.
 
 ## Layout
 

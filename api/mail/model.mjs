@@ -30,6 +30,38 @@ export function mailDomains(env = process.env.MAIL_DOMAINS) {
   return String(env || '').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 }
 
+// A mailbox's profile: what people see in the app and in the From line, plus a signature added to
+// every email sent from it. Members of the mailbox can edit it. Throws Error with a readable message.
+export const MAILBOX_AVATAR_MAX = 60_000;
+const AVATAR_DATA_RE = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+export function cleanMailboxProfile(body) {
+  const out = {};
+  const text = (value, max) => String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  if ('displayName' in body) {
+    out.displayName = text(body.displayName, 80);
+    if (/[<>"]/.test(out.displayName)) throw new Error('The display name can’t contain <, > or ".');
+  }
+  if ('description' in body) out.description = text(body.description, 200);
+  if ('signature' in body) out.signature = String(body.signature ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim().slice(0, 1000);
+  if ('color' in body) {
+    if (body.color && !/^#[0-9a-f]{6}$/i.test(body.color)) throw new Error('Pick a colour like #6c5ce7.');
+    out.color = body.color ? body.color.toLowerCase() : '';
+  }
+  if ('avatar' in body) {
+    const avatar = body.avatar;
+    if (avatar !== null && !(typeof avatar === 'string' && avatar.length <= MAILBOX_AVATAR_MAX && AVATAR_DATA_RE.test(avatar))) {
+      throw new Error('The photo must be a JPEG, PNG or WebP image under 45 KB.');
+    }
+    out.avatar = avatar;
+  }
+  if (!Object.keys(out).length) throw new Error('Nothing to change.');
+  return out;
+}
+
+// The text of an outgoing email with the mailbox's signature under the usual "-- " separator.
+export const withSignature = (text, signature) => (signature ? `${String(text).trimEnd()}\n\n-- \n${signature}` : String(text));
+
 export function cleanMailboxAddress(address, domains) {
   const value = String(address || '').trim().toLowerCase();
   const [local, domain, extra] = value.split('@');

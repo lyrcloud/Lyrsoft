@@ -2,6 +2,7 @@
 //   GET    /mail/mailboxes                                   mailboxes I can use (+ setup status for the super admin)
 //   POST   /mail/mailboxes                                   create (super admin)
 //   PATCH  /mail/mailboxes/{address}                         name, members, catch-all (super admin)
+//   PATCH  /mail/mailboxes/{address}/profile                 photo, display name, colour, description, signature (members)
 //   DELETE /mail/mailboxes/{address}                         stop receiving; history is kept (super admin)
 //   GET    /mail/mailboxes/{address}/threads?status=&cursor= conversation list
 //   POST   /mail/mailboxes/{address}/send                    start a new conversation
@@ -21,11 +22,13 @@ import {
   canUseMailbox,
   cleanEmailList,
   cleanMailboxAddress,
+  cleanMailboxProfile,
   isMailStaff,
   mailDomains,
   newId,
   quoteReply,
   replySubject,
+  withSignature,
   PURGEABLE_STATUSES,
   BULK_ACTIONS,
   THREAD_STATUSES,
@@ -59,6 +62,10 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
   const mailboxOut = (m, me, counts = {}) => ({
     address: m.address,
     displayName: m.displayName || '',
+    description: m.description || '',
+    avatar: m.avatar || null,
+    color: m.color || '',
+    signature: m.signature || '',
     catchAll: Boolean(m.catchAll),
     members: canManageMailboxes(me) ? m.members || [] : undefined,
     lastReceivedAt: m.lastReceivedAt || null,
@@ -122,7 +129,7 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
       to,
       cc,
       subject,
-      text,
+      text: withSignature(text, mailbox.signature),
       inReplyTo,
       references,
     });
@@ -152,7 +159,7 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
         to,
         cc,
         subject,
-        text,
+        text: withSignature(text, mailbox.signature),
         html: null,
         // SES replaces our Message-ID with its own; replies reference that one.
         headerMessageId: `<${sent.MessageId}@email.amazonses.com>`,
@@ -220,6 +227,16 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
       }
       next.catchAll = Boolean(body.catchAll);
     }
+    await store.putMailbox(next);
+    return { mailbox: mailboxOut(next, me) };
+  });
+
+  // Anyone who can use a mailbox can edit its profile (name, photo, colour, description, signature).
+  route('PATCH', '/mail/mailboxes/{address}/profile', async (me, { address }, body) => {
+    const mailbox = await openMailbox(me, address);
+    const changes = clean(() => cleanMailboxProfile(body));
+    const next = { ...mailbox, ...changes, profileUpdatedAt: new Date().toISOString(), profileUpdatedBy: me.email };
+    if (changes.avatar === null) delete next.avatar;
     await store.putMailbox(next);
     return { mailbox: mailboxOut(next, me) };
   });

@@ -118,3 +118,16 @@ test('folders: trash remembers where a conversation came from, and restore puts 
   assert.deepEqual(threadActionChanges({ status: 'open' }, 'read'), { unread: false });
   assert.equal(threadActionChanges({ status: 'open' }, 'delete'), null);
 });
+
+test('mailbox profiles: photo, name, colour, signature', async () => {
+  const { cleanMailboxProfile, withSignature } = await import('./model.mjs');
+  assert.deepEqual(cleanMailboxProfile({ displayName: '  Lyrtrip   Support ', color: '#AABBCC', signature: 'Thanks,\r\nTeam\u0007' }), { displayName: 'Lyrtrip Support', color: '#aabbcc', signature: 'Thanks,\nTeam' });
+  assert.deepEqual(cleanMailboxProfile({ avatar: null }), { avatar: null });
+  assert.equal(cleanMailboxProfile({ avatar: 'data:image/jpeg;base64,AAAA' }).avatar, 'data:image/jpeg;base64,AAAA');
+  assert.throws(() => cleanMailboxProfile({ avatar: 'https://evil.example/x.png' }), /photo/);
+  assert.throws(() => cleanMailboxProfile({ displayName: 'Bad <x@y.z>' }), /display name/);
+  assert.throws(() => cleanMailboxProfile({ color: 'red' }), /colour/);
+  assert.throws(() => cleanMailboxProfile({}), /Nothing/);
+  assert.equal(withSignature('Hello\n', 'Team'), 'Hello\n\n-- \nTeam');
+  assert.equal(withSignature('Hello', ''), 'Hello');
+});

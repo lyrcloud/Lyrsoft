@@ -1,8 +1,12 @@
 // Lyrsoft Mail: shared inboxes (support@lyrtrip.com and so on) inside Lyrsoft Work.
 // Routes: #/mail/<address>?status=open|closed|spam|trash&thread=<id>, and #/mail/settings (super admin).
+// Mail opens as one window with a tab per mailbox (photo, name, unread count) and a Manage tab. Each
+// mailbox has a profile its members can edit: photo, display name, colour, description and signature.
 // Folders: Inbox (open), Closed, Spam and Trash. Delete moves a conversation to Trash; Delete forever
 // and Empty trash/spam remove it for good. Checkboxes select conversations for bulk actions.
 // The app shell (app.js) owns routing and rendering; this module loads mail data and renders views.
+
+import { avatarHtml, imageFileToAvatar } from './avatar.js';
 
 const STATUS_LABELS = { open: 'Inbox', closed: 'Closed', spam: 'Spam', trash: 'Trash' };
 const FOLDER_ICONS = { open: '📥', closed: '✓', spam: '⚠', trash: '🗑' };
@@ -138,18 +142,119 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
 
   function sidebarLinks(route) {
     if (!hasMail()) return '';
-    const boxes = mail.boxes?.mailboxes || [];
+    const unread = (mail.boxes?.mailboxes || []).reduce((n, m) => n + (m.openCount || 0), 0);
+    const first = mail.boxes?.mailboxes[0];
     return `
       <nav aria-label="Mail">
         <p class="nav-label">Mail</p>
-        ${boxes
-          .map(
-            (m) => `<a href="#/mail/${encodeURIComponent(m.address)}"${route.view === 'mail' && route.mailbox === m.address ? ' aria-current="page"' : ''}>
-              <span class="nav-icon" aria-hidden="true">✉</span><span class="nav-text">${esc(m.address)}</span>${m.openCount ? `<span class="count">${m.openCount}</span>` : ''}</a>`,
-          )
-          .join('')}
-        ${mail.boxes?.canManage ? `<a href="#/mail/settings"${route.view === 'mailSettings' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">⚙</span>Mailbox settings</a>` : ''}
+        <a href="#/mail${first ? `/${encodeURIComponent(first.address)}` : '/settings'}"${route.view.startsWith('mail') ? ' aria-current="page"' : ''}>
+          <span class="nav-icon" aria-hidden="true">✉</span><span class="nav-text">Mailboxes</span>${unread ? `<span class="count">${unread}</span>` : ''}</a>
       </nav>`;
+  }
+
+  // ------------------------------------------------------------------ window: tabs and profile
+
+  const boxName = (m) => m.displayName || m.address.split('@')[0];
+  const boxAvatar = (m, size = '') => `<span class="box-av ${size}" style="--box:${esc(m.color || '')}">${avatarHtml({ name: boxName(m), avatar: m.avatar }, 'avatar')}</span>`;
+
+  function mailTabs(route) {
+    const boxes = mail.boxes?.mailboxes || [];
+    return `
+      <nav class="mail-tabs" aria-label="Mailboxes" data-scroll-tabs>
+        ${boxes.map((m) => `
+          <a class="mail-tab" href="#/mail/${encodeURIComponent(m.address)}"${route.view === 'mail' && route.mailbox === m.address ? ' aria-current="page"' : ''} title="${esc(m.address)}">
+            ${boxAvatar(m, 'tiny')}<span class="mail-tab-text"><b>${esc(boxName(m))}</b><small>${esc(m.address)}</small></span>${m.openCount ? `<span class="count">${m.openCount}</span>` : ''}
+          </a>`).join('')}
+        ${mail.boxes?.canManage ? `<a class="mail-tab manage" href="#/mail/settings"${route.view === 'mailSettings' ? ' aria-current="page"' : ''}><span class="mail-tab-icon" aria-hidden="true">⚙</span><span class="mail-tab-text"><b>Manage</b><small>Mailboxes &amp; domains</small></span></a>` : ''}
+      </nav>`;
+  }
+
+  function profileBanner(m) {
+    return `
+      <header class="mail-profile" style="--box:${esc(m.color || '')}">
+        <button class="mail-profile-photo" data-click="mail-edit-profile" title="Change photo and profile" aria-label="Edit ${esc(m.address)} profile">${boxAvatar(m, 'huge')}<span class="photo-badge" aria-hidden="true">📷</span></button>
+        <div class="mail-profile-text">
+          <h1>${esc(m.displayName || m.address)}</h1>
+          <p class="mail-profile-address">${esc(m.address)}${m.catchAll ? ' <span class="pill">catch-all</span>' : ''}</p>
+          ${m.description ? `<p class="muted">${esc(m.description)}</p>` : ''}
+        </div>
+        <div class="page-actions">
+          <button class="btn" data-click="mail-edit-profile">✎ Edit profile</button>
+          <button class="btn primary" data-click="mail-compose">✎ New email</button>
+        </div>
+      </header>`;
+  }
+
+  async function editProfile(m) {
+    let avatar = m.avatar || null;
+    const result = await new Promise((resolve) => {
+      const node = document.createElement('dialog');
+      node.className = 'dialog wide mail-profile-dialog';
+      const preview = () => `${boxAvatar({ ...m, avatar, color: node.querySelector('[name=color]')?.value || m.color, displayName: node.querySelector('[name=displayName]')?.value || m.displayName }, 'huge')}`;
+      node.innerHTML = `
+        <form>
+          <h2>Mailbox profile</h2>
+          <p class="muted small">${esc(m.address)} · everyone who uses this mailbox can change it.</p>
+          <div class="profile-photo-row">
+            <div class="profile-photo-preview">${preview()}</div>
+            <div class="stack">
+              <label class="btn">📷 Upload photo<input type="file" accept="image/*" hidden data-photo /></label>
+              <button type="button" class="btn ghost" data-remove-photo${avatar ? '' : ' hidden'}>Remove photo</button>
+              <p class="muted small">Square photos work best. We shrink it for you.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label>Display name<input name="displayName" maxlength="80" value="${esc(m.displayName)}" placeholder="e.g. Lyrtrip Support" /></label>
+            <label>Colour<input type="color" name="color" value="${esc(m.color || '#6c5ce7')}" /></label>
+          </div>
+          <label>Description <span class="muted small">optional, shown under the name</span><input name="description" maxlength="200" value="${esc(m.description)}" placeholder="What this inbox is for" /></label>
+          <label>Signature <span class="muted small">added under every email sent from this mailbox</span><textarea name="signature" rows="4" maxlength="1000" placeholder="Best regards,&#10;Lyrtrip Support&#10;+880 …">${esc(m.signature)}</textarea></label>
+          <p class="error-text" role="alert" hidden></p>
+          <div class="row end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save profile</button></div>
+        </form>`;
+      document.body.append(node);
+      const refresh = () => {
+        node.querySelector('.profile-photo-preview').innerHTML = preview();
+        node.querySelector('[data-remove-photo]').hidden = !avatar;
+      };
+      const error = node.querySelector('.error-text');
+      node.querySelector('[data-photo]').addEventListener('change', async (event) => {
+        try {
+          error.hidden = true;
+          avatar = await imageFileToAvatar(event.target.files[0]);
+          refresh();
+        } catch (e) {
+          error.textContent = e.message;
+          error.hidden = false;
+        }
+      });
+      node.querySelector('[data-remove-photo]').addEventListener('click', () => {
+        avatar = null;
+        refresh();
+      });
+      node.querySelectorAll('[name=color], [name=displayName]').forEach((input) => input.addEventListener('input', refresh));
+      node.querySelector('[data-close]').addEventListener('click', () => node.close());
+      let value = null;
+      node.querySelector('form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        value = { ...Object.fromEntries(new FormData(node.querySelector('form'))), avatar };
+        node.close();
+      });
+      node.addEventListener('close', () => {
+        node.remove();
+        resolve(value);
+      });
+      node.showModal();
+    });
+    if (!result) return;
+    try {
+      const { mailbox } = await api('PATCH', boxPath(m.address, '/profile'), result);
+      Object.assign(m, mailbox);
+      render();
+      toast('Profile saved');
+    } catch (error) {
+      toast(error.message);
+    }
   }
 
   // ------------------------------------------------------------------ inbox view
@@ -189,12 +294,12 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     return note + messageFrame(message, allowImages, content);
   }
 
-  function messageCard(message) {
+  function messageCard(message, mailbox) {
     const warn = message.verdicts && ['spf', 'dkim', 'dmarc'].filter((k) => message.verdicts[k] === 'FAIL');
     return `
       <article class="message ${message.direction}">
         <header>
-          <span class="avatar">${initial(message.from?.name || message.from?.address)}</span>
+          ${message.direction === 'out' && mailbox ? boxAvatar(mailbox) : `<span class="avatar">${initial(message.from?.name || message.from?.address)}</span>`}
           <div>
             <div>${person(message.from)}${message.sentBy ? ` <span class="muted small">· sent by ${esc(message.sentBy)}</span>` : ''}</div>
             <div class="muted small">To ${message.to.map(esc).join(', ')}${message.cc.length ? ` · Cc ${message.cc.map(esc).join(', ')}` : ''}</div>
@@ -255,13 +360,14 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         ${thread.status === 'spam' ? '<p class="muted small">Marked as spam. Links and images are blocked; don’t reply unless you know the sender.</p>' : ''}
         ${thread.assignee ? `<p class="muted small">Assigned to ${esc(thread.assignee)}</p>` : ''}
       </div>
-      <div class="messages">${messages.map(messageCard).join('')}</div>
+      <div class="messages">${messages.map((message) => messageCard(message, box(route.mailbox))).join('')}</div>
       <form class="reply-box" data-form="mail-reply">
         <label>To <input name="to" value="${esc(to.join(', '))}" required aria-label="To" /></label>
         <label>Cc <input name="cc" value="${esc(cc.join(', '))}" aria-label="Cc" /></label>
         <textarea name="text" rows="5" required placeholder="Write your reply…" aria-label="Reply"></textarea>
         <div class="row end">
           ${sandbox ? '<span class="muted small">SES sandbox: replies only reach verified addresses.</span>' : ''}
+          ${box(route.mailbox)?.signature ? '<span class="muted small">✍ Your mailbox signature is added.</span>' : ''}
           <button class="btn primary" type="submit">Send reply</button>
         </div>
       </form>`;
@@ -310,10 +416,9 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     const shown = list ? list.filter(matches) : [];
     const showingThread = Boolean(route.params.get('thread'));
     return `
-      <div class="page-head">
-        <div><h1>${esc(current.displayName || current.address)}</h1><p>${esc(current.address)}${current.catchAll ? ' · catch-all' : ''}</p></div>
-        <div class="page-actions"><button class="btn primary" data-click="mail-compose">✎ New email</button></div>
-      </div>
+      <div class="mail-window">
+      ${mailTabs(route)}
+      ${profileBanner(current)}
       <div class="mail-layout${showingThread ? ' has-thread' : ''}">
         ${folderNav(current, status)}
         <section class="thread-list" aria-label="${STATUS_LABELS[status]}">
@@ -330,6 +435,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         <section class="conversation" aria-label="Conversation">
           ${showingThread ? conversation(route) : `<div class="empty-list convo-empty"><span aria-hidden="true">${FOLDER_ICONS[status]}</span><p>Select a conversation to read it.</p></div>`}
         </section>
+      </div>
       </div>`;
   }
 
@@ -349,6 +455,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     if (!canManage) return '<section class="panel empty"><h2>Not available</h2><p>Only the super admin manages mailboxes.</p></section>';
     const statusCell = (ok, text) => `<span class="${ok ? 'ok' : 'warn-text'}">${ok ? '✓' : '✗'} ${text}</span>`;
     return `
+      <div class="mail-window">${mailTabs(currentRoute.value)}</div>
       <div class="page-head"><div><h1>Mailbox settings</h1><p>Shared addresses for ${domains.length} domains.</p></div></div>
       ${
         setup?.sandbox
@@ -434,6 +541,10 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
   }
 
   const clickActions = {
+    'mail-edit-profile': () => {
+      const m = box(currentRoute.value?.mailbox);
+      if (m) editProfile(m);
+    },
     'mail-show-images': (target) => {
       mail.showImages.add(target.dataset.id);
       render();
@@ -530,7 +641,8 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         <label>To<input name="to" required placeholder="name@example.com, …" /></label>
         <label>Cc<input name="cc" placeholder="Optional" /></label>
         <label>Subject<input name="subject" required maxlength="300" /></label>
-        <label>Message<textarea name="text" rows="8" required></textarea></label>`, 'Send');
+        <label>Message<textarea name="text" rows="8" required></textarea></label>
+        ${box(route.mailbox)?.signature ? `<p class="muted small">✍ Signature added below your message:</p><pre class="signature-preview">${esc(box(route.mailbox).signature)}</pre>` : ''}`, 'Send');
       if (!values) return;
       try {
         const { thread } = await api('POST', boxPath(route.mailbox, '/send'), values);
@@ -638,6 +750,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
 
   return {
     hasMail,
+    mailboxes: () => mail.boxes?.mailboxes || [],
     load: (route) => {
       currentRoute.value = route;
       return load(route);

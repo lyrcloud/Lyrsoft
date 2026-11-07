@@ -25,9 +25,15 @@ npm test
 # Both Lambdas are bundled with their dependencies (AWS SDK, postal-mime) into one zip.
 build="$(mktemp -d)"
 trap 'rm -rf "$build"' EXIT
-node node_modules/esbuild/bin/esbuild work=api/work/index.mjs inbound=api/mail/inbound.mjs --bundle --platform=node --target=node22 \
-  --format=esm --minify-syntax --outdir="$build" --out-extension:.js=.mjs --log-level=warning \
-  --banner:js="import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);"
+BUILD_DIR="$build" node --input-type=module -e '
+import { build } from "esbuild";
+await build({
+  entryPoints: { work: "api/work/index.mjs", inbound: "api/mail/inbound.mjs" },
+  bundle: true, platform: "node", target: "node22", format: "esm", minifySyntax: true,
+  outdir: process.env.BUILD_DIR, outExtension: { ".js": ".mjs" }, logLevel: "warning",
+  banner: { js: "import{createRequire as __cr}from\"node:module\";const require=__cr(import.meta.url);" },
+});
+'
 (cd "$build" && zip -q -X code.zip work.mjs inbound.mjs)
 key="work-api/$(sha256sum "$build/code.zip" | cut -d' ' -f1).zip"
 aws s3 cp "$build/code.zip" "s3://$ARTIFACTS_BUCKET/$key" >/dev/null

@@ -137,7 +137,8 @@ img { max-width: 100%; }
 .lyrbot-whatsapp { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--ok) 14%, var(--card)); color: var(--ok); font-weight: 700; text-decoration: none; }
 .lyrbot-whatsapp svg { width: 15px; height: 15px; }
 .lyrbot-email { color: var(--brand); font-weight: 600; text-decoration: none; }
-.lyrbot-whatsapp:hover, .lyrbot-email:hover { text-decoration: underline; }
+.lyrbot-lyrchat { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 12%, var(--card)); color: var(--brand); font-weight: 700; text-decoration: none; }
+.lyrbot-whatsapp:hover, .lyrbot-email:hover, .lyrbot-lyrchat:hover { text-decoration: underline; }
 @media (max-width: 560px) {
   .lyrbot-toggle-label { display: none; }
   .lyrbot-toggle { width: 52px; padding: 0; justify-content: center; }

@@ -181,6 +181,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
             <button class="call-btn" data-call="mic"></button>
             <button class="call-btn" data-call="camera"></button>
             <button class="call-btn" data-call="flip" hidden>🔄<span>Flip</span></button>
+            <button class="call-btn" data-call="speaker"></button>
             <button class="call-btn" data-call="share"></button>
             <button class="call-btn" data-call="record"></button>
             <button class="call-btn" data-call="chat">💬<span>Chat</span></button>
@@ -202,6 +203,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     };
     set('mic', !call.muted, 'Mute', 'Unmute', '🎙', '🔇');
     set('camera', call.camera, 'Stop video', 'Start video', '📷', '🚫');
+    set('speaker', call.speaker, 'Speaker on', 'Speaker', '🔊', '🔈');
+    root.querySelector('[data-call="speaker"]').classList.toggle('active', Boolean(call.speaker));
     // Flip shows while the camera is on and there's more than one camera (phones), or the count isn't known yet.
     root.querySelector('[data-call="flip"]').hidden = !call.camera || call.cameraCount === 1;
     set('share', call.sharing, 'Stop sharing', 'Share screen', '🖥', '🖥', !navigator.mediaDevices?.getDisplayMedia);
@@ -452,6 +455,56 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     mirrorSelf();
   }
 
+  // Loudspeaker. Where the browser can choose where sound plays (Chrome, Edge and Android Chrome) and
+  // lists a loudspeaker, Speaker switches the call to it and back. Elsewhere (iPhone and most phones,
+  // which don't name their outputs) it makes the call louder instead: the call's audio goes through Web
+  // Audio with a gain and a limiter, so voices are boosted without crackling.
+  async function toggleSpeaker() {
+    const on = !call.speaker;
+    const audio = callRoot().querySelector('.call-audio');
+    let switched = false;
+    if (typeof audio?.setSinkId === 'function') {
+      try {
+        const outputs = await call.av.listAudioOutputDevices();
+        const target = on ? outputs.find((d) => /speaker/i.test(d.label)) : outputs.find((d) => /earpiece|receiver|handset/i.test(d.label)) || outputs.find((d) => d.deviceId === 'default');
+        if (target) {
+          await call.av.chooseAudioOutput(target.deviceId);
+          switched = true;
+        }
+      } catch {}
+    }
+    setBoost(on && !switched);
+    call.speaker = on;
+    toast(on ? (switched ? 'Speaker on' : 'Loud volume on') : 'Speaker off');
+    renderCall();
+  }
+
+  function setBoost(on) {
+    const audio = callRoot().querySelector('.call-audio');
+    if (call.boost) {
+      call.boost.close().catch(() => {});
+      call.boost = null;
+      if (audio) audio.muted = false;
+    }
+    const stream = audio?.srcObject;
+    if (!on || !stream) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.gain.value = 2.5;
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -6;
+      limiter.ratio.value = 20;
+      ctx.createMediaStreamSource(stream).connect(gain).connect(limiter).connect(ctx.destination);
+      ctx.resume?.();
+      // The element stays attached (Chrome only plays remote WebRTC audio into Web Audio while it is) but silent.
+      audio.muted = true;
+      call.boost = ctx;
+    } catch {
+      toast('This browser can’t make the call louder. Use your phone’s volume buttons.');
+    }
+  }
+
   // Switches between the front and rear camera while the video keeps going.
   async function flipCamera() {
     if (!call.camera) return;
@@ -489,7 +542,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
 
   function cleanupCall() {
     if (!call) return;
-    const { av, chatView, meetingId } = call;
+    const { av, chatView, meetingId, boost } = call;
+    boost?.close().catch(() => {});
     call = null;
     onCallChange(null, meetingId);
     if (chatView?.el?.closest('#call-root')) chatView.unmount();
@@ -529,6 +583,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       renderCall();
     } else if (action === 'camera') await toggleCamera();
     else if (action === 'flip') await flipCamera();
+    else if (action === 'speaker') await toggleSpeaker();
     else if (action === 'share') await toggleShare();
     else if (action === 'record') await toggleRecording();
     else if (action === 'invite') {

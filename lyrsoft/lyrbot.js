@@ -9,7 +9,7 @@ import { WORK_API_BASE } from './config.js';
   const WHATSAPP_LABEL = "+1 661 580 9465";
   const SUPPORT_EMAIL = "hello@lyrsoft.com";
   const GREETING = "Hi, I'm Lyrbot! Ask me about Lyrsoft's services, how we work, or how to start a project.";
-  const QUICK_QUESTIONS = ["What does Lyrsoft build?", "How does a project work?", "How do I get a quote?", "Do I own the code?"];
+  const QUICK_QUESTIONS = ["What does Lyrsoft build?", "How does a project work?", "How do I get a quote?", "What is Lyr Chat?"];
 
   const ROBOT_ICON = `
     <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
@@ -89,6 +89,7 @@ import { WORK_API_BASE } from './config.js';
         <span>Prefer a person?</span>
         <a class="lyrbot-whatsapp" href="${WHATSAPP_URL}" target="_blank" rel="noopener">${WHATSAPP_ICON} WhatsApp ${WHATSAPP_LABEL}</a>
         <a class="lyrbot-email" href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>
+        <a class="lyrbot-lyrchat" href="/chat/" target="_blank" rel="noopener">💬 Lyr Chat</a>
       </div>
     </section>`;
   document.body.appendChild(root);

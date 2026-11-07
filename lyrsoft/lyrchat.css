@@ -557,7 +557,7 @@ body.lyrchat {
 
 .lc-calling {
   position: fixed;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(72px + env(safe-area-inset-top));
   left: 50%;
   z-index: 60;
   display: flex;

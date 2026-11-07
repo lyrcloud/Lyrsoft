@@ -5915,3 +5915,6 @@ button.app-btn:disabled {
 .chat-msg.mine .chat-call.missed b { color: inherit; }
 .chat-msg.mine .chat-call .btn { border-color: rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.18); color: #fff; }
 .chat-msg.mine .chat-call-icon { background: rgba(255, 255, 255, 0.2); }
+
+/* Sidebar link to Lyr Chat (opens the app in its own tab) */
+.nav-ext { margin-left: auto; color: var(--muted); font-size: 0.8rem; }

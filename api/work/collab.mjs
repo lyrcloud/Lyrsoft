@@ -38,6 +38,8 @@
 //   POST /chat/{conv}/request                   { action: 'accept' | 'delete' } a request someone sent me
 //   POST /chat/{conv}/block                     { on, report? } block (and report) or unblock the other person
 //   GET  /chat/blocked                          people I've blocked
+//   GET  /chat/address-book                     which of my Lyrsoft Contacts are on Lyrsoft (see matchAddressBook)
+//   POST /chat/dm                               { contactId } chat with someone from my Contacts
 //   POST /calls                                 { conv, video } ring everyone in a DM or group
 //   GET  /calls                                 my call history       GET /calls/ringing   calls ringing for me
 //   GET  /calls/{id}                            status (the caller watches for answer / decline)
@@ -53,6 +55,8 @@
 //   MEETING#<id>     META                meeting
 //   MEETING#<id>     INVITE#<email>      host and invitees  GSI1: MEETUSER#<email> / <startsAt>#<id>
 //   BLOCK#<email>    <blocked email>     { conv, name, at }
+//   CHATBOOK#<userId> META               my Contacts' matches, cached for 6 hours (and until the book changes)
+//   RATE#chatsync#<userId> <day>         numbers matched today
 //   REPORT#<iso>     <conv>              a reported chat (also emailed to the super admin)
 //   CALL#<id>        META                a ringing or finished call (lyrchat-model.mjs)
 //   CALL#<id>        USER#<email>        caller and callees  GSI1: CALLUSER#<email> / <startedAt>#<id>
@@ -63,6 +67,10 @@ import { safeFilename } from '../mail/model.mjs';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { meetingInviteEmail } from './account.mjs';
 import {
+  ADDRESS_BOOK_CACHE_MS,
+  ADDRESS_BOOK_PHONES_PER_DAY,
+  bookVersion,
+  matchAddressBook,
   answerCall,
   CALL_RING_MS,
   callLogEntry,
@@ -294,10 +302,22 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
   // A DM with a co-worker opens straight away. Anyone else on Lyrsoft (found by email, or by the mobile
   // number they verified) gets a message request; found by number, their email stays hidden from me.
   route('POST', '/chat/dm', async (me, _p, body) => {
-    const byPhone = !body.email && Boolean(body.phone);
+    let byPhone = !body.email && !body.contactId && Boolean(body.phone);
     let email = String(body.email || '').trim().toLowerCase();
     let account = null;
-    if (byPhone) {
+    let label = byPhone ? String(body.phone).trim().slice(0, 30) : '';
+    // Someone from my Contacts that Lyr Chat matched (by their email, or by a number they verified).
+    if (body.contactId) {
+      const contact = /^[\w-]{6,40}$/.test(String(body.contactId)) ? await get(`CONTACTS#${me.userId}`, `C#${body.contactId}`) : null;
+      if (!contact) throw new HttpError(404, 'Contact not found.');
+      const profiles = await listProfiles();
+      const [match] = matchAddressBook([contact], profiles, me.email).matches;
+      if (!match) throw new HttpError(404, 'That contact isn’t on Lyr Chat yet. Invite them instead.');
+      email = match.account;
+      account = profiles.find((p) => p.email === email);
+      byPhone = match.via === 'phone';
+      label = byPhone ? match.value.slice(0, 30) : '';
+    } else if (byPhone) {
       account = await accountForPhone(me, body.phone);
       if (!account) throw new HttpError(404, 'No one on Lyrsoft has verified that number yet. Invite them instead.');
       email = account.email;
@@ -319,7 +339,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       account ??= await profileByEmail(email);
       if (!account) throw new HttpError(404, 'There’s no Lyrsoft account with that email yet. Invite them instead.');
       if (await blockedBy(email, me.email)) throw new HttpError(403, 'You can’t message this person.');
-      request = { from: me.email, to: email, status: 'pending', at: now(), masked: byPhone, label: byPhone ? String(body.phone).trim().slice(0, 30) : '' };
+      request = { from: me.email, to: email, status: 'pending', at: now(), masked: byPhone, label };
     }
     const createdAt = now();
     const otherName = contact?.name || (byPhone ? firstName(account?.name) : account?.name || '');
@@ -374,6 +394,43 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       }
     }
     return { blocked: true, reported: Boolean(body.report) };
+  });
+
+  route('GET', '/chat/address-book', async (me) => {
+    const contacts = await queryAll({ KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)', ExpressionAttributeValues: { ':pk': `CONTACTS#${me.userId}`, ':sk': 'C#' } });
+    const version = bookVersion(contacts);
+    const cached = await get(`CHATBOOK#${me.userId}`, 'META');
+    let matches = cached?.matches || [];
+    let limited = false;
+    if (!cached || cached.version !== version || Date.now() - Date.parse(cached.at) > ADDRESS_BOOK_CACHE_MS) {
+      const profiles = await listProfiles();
+      const day = now().slice(0, 10);
+      const used = (await get(`RATE#chatsync#${me.userId}`, day))?.n || 0;
+      const phoneCount = contacts.reduce((n, c) => n + (c.phones?.length || 0), 0);
+      limited = used + phoneCount > ADDRESS_BOOK_PHONES_PER_DAY;
+      // Over today's number budget: emails still match; numbers wait until tomorrow (keeping earlier matches).
+      const result = matchAddressBook(contacts, profiles, me.email, { phones: !limited });
+      if (limited) {
+        const ids = new Set(result.matches.map((m) => m.id));
+        result.matches.push(...matches.filter((m) => m.via === 'phone' && !ids.has(m.id)));
+      } else {
+        await put({ PK: `RATE#chatsync#${me.userId}`, SK: day, n: used + result.phonesChecked, expiresAt: Math.floor(Date.now() / 1000) + 2 * 86400 });
+      }
+      matches = result.matches;
+      await put({ PK: `CHATBOOK#${me.userId}`, SK: 'META', version: limited ? 'limited' : version, at: now(), matches });
+    }
+    const out = [];
+    for (const m of matches) {
+      const meta = await get(`CHAT#${dmId(me.email, m.account)}`, 'META');
+      out.push({
+        id: m.id,
+        via: m.via,
+        email: m.via === 'email' ? m.account : null,
+        name: m.via === 'phone' ? m.firstName || '' : '',
+        conv: meta?.members?.includes(me.email) ? meta.conv : null,
+      });
+    }
+    return { matches: out, total: contacts.length, limited };
   });
 
   route('GET', '/chat/blocked', async (me) => {

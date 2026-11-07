@@ -702,3 +702,27 @@ body.lyrchat {
 .lc-banner[hidden] {
   display: none !important;
 }
+
+/* Contacts tab */
+.lc-contact .lc-call-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lc-badge.soft {
+  background: var(--brand);
+}
+
+.lc-tabs .lc-tab {
+  font-size: 0.7rem;
+}

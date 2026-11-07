@@ -158,3 +158,69 @@ export function messagePush({ conv, meta, author, snippet, request }) {
     url: request ? '/chat/#/requests' : `/chat/#/chat/${encodeURIComponent(conv)}`,
   };
 }
+
+// ------------------------------------------------------------------ your Contacts on Lyr Chat
+//
+// Lyr Chat shows which people in your Lyrsoft Contacts are on Lyrsoft, like a phone's messaging app
+// does with its address book. A contact matches by an email that has an account, or by a mobile number
+// someone verified (written with its country code, or without it when exactly one account fits).
+// Phone matches never reveal the account's email. Numbers checked per person per day are capped, so
+// importing contacts can't be used to sweep numbers.
+
+export const ADDRESS_BOOK_PHONES_PER_DAY = 20_000;
+export const ADDRESS_BOOK_CACHE_MS = 6 * 3600_000;
+
+export const bookVersion = (contacts) => `${contacts.length}:${contacts.reduce((max, c) => (String(c.updatedAt || '') > max ? String(c.updatedAt) : max), '')}`;
+
+export function matchAddressBook(contacts, profiles, me, { phones = true } = {}) {
+  const byEmail = new Map();
+  const byE164 = new Map();
+  const byTail = new Map();
+  const verified = [];
+  for (const p of profiles) {
+    if (!p?.email || p.disabled || p.email === me) continue;
+    byEmail.set(String(p.email).toLowerCase(), p);
+    if (p.phoneVerified && typeof p.phone === 'string') {
+      byE164.set(p.phone, p);
+      verified.push(p);
+      const tail = p.phone.replace(/\D/g, '').slice(-10);
+      byTail.set(tail, byTail.has(tail) ? null : p); // null: more than one account fits
+    }
+  }
+  const matches = [];
+  let phonesChecked = 0;
+  for (const c of contacts) {
+    let found = null;
+    for (const e of c.emails || []) {
+      const p = byEmail.get(String(e.value || '').trim().toLowerCase());
+      if (p) {
+        found = { id: c.id, via: 'email', account: p.email, value: e.value };
+        break;
+      }
+    }
+    if (!found && phones) {
+      for (const ph of c.phones || []) {
+        const raw = String(ph.value || '').trim();
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length < 7 || digits.length > 15) continue;
+        phonesChecked += 1;
+        let p = null;
+        if (/^(\+|00)/.test(raw)) p = byE164.get(`+${raw.startsWith('00') ? digits.slice(2) : digits}`) || null;
+        else {
+          const tail = digits.replace(/^0+/, '').slice(-10);
+          if (tail.length === 10) p = byTail.get(tail) || null;
+          else if (tail.length === 9) {
+            const fits = verified.filter((v) => v.phone.replace(/\D/g, '').endsWith(tail));
+            p = fits.length === 1 ? fits[0] : null;
+          }
+        }
+        if (p) {
+          found = { id: c.id, via: 'phone', account: p.email, value: raw, firstName: String(p.name || '').trim().split(/\s+/)[0] || '' };
+          break;
+        }
+      }
+    }
+    if (found) matches.push(found);
+  }
+  return { matches, phonesChecked };
+}

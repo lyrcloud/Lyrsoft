@@ -4,6 +4,7 @@
 //
 //   #/                 chats            #/chat/<conv>   a conversation    #/requests   message requests
 //   #/new              new chat (phone number, email, co-workers, your Contacts)    #/group   new group
+//   #/contacts         your Lyrsoft Contacts: who's on Lyr Chat (chat or call them), and inviting the rest
 //   #/calls            call history     #/settings      notifications, install, blocked people, sign out
 //   #/call/<id>        an incoming call (opened from its notification)
 //   #/meet/<id>        join a group call or meeting
@@ -100,7 +101,11 @@ const S = {
   list: null, // GET /chat
   calls: null, // GET /calls
   blocked: null, // GET /chat/blocked
-  book: null, // GET /contacts (the address book), loaded on demand
+  book: null, // GET /contacts (the address book), loaded automatically
+  matches: new Map(), // contact id -> { via, email, name, conv } from GET /chat/address-book
+  bookLoadedAt: 0,
+  bookLimited: false,
+  contactQuery: '',
   route: { view: 'chats', params: new URLSearchParams() },
   search: '',
   newQuery: '',
@@ -124,7 +129,7 @@ function parseRoute() {
   const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
   const params = new URLSearchParams(query);
   if (parts[0] === 'chat' && parts[1]) return { view: 'chat', conv: parts[1], params };
-  if (['calls', 'requests', 'new', 'group', 'settings'].includes(parts[0])) return { view: parts[0], params };
+  if (['calls', 'contacts', 'requests', 'new', 'group', 'settings'].includes(parts[0])) return { view: parts[0], params };
   if (parts[0] === 'call' && parts[1]) return { view: 'incoming', callId: parts[1], params };
   if (parts[0] === 'meet' && parts[1]) return { view: 'meet', meetingId: parts[1], params };
   return { view: 'chats', params };
@@ -484,6 +489,7 @@ const tabs = () => {
   const tab = (hash, icon, label, on, badge = '') => `<a class="lc-tab${on ? ' on' : ''}" href="${hash}"><span aria-hidden="true">${icon}</span>${label}${badge}</a>`;
   return `<nav class="lc-tabs">
     ${tab('#/', '💬', 'Chats', ['chats', 'chat', 'requests', 'new', 'group'].includes(v), unread ? `<b class="lc-badge">${unread}</b>` : '')}
+    ${tab('#/contacts', '👤', 'Contacts', v === 'contacts', S.matches.size ? `<b class="lc-badge soft">${S.matches.size}</b>` : '')}
     ${tab('#/calls', '📞', 'Calls', v === 'calls')}
     ${tab('#/settings', '⚙️', 'Settings', v === 'settings')}
   </nav>`;
@@ -497,7 +503,7 @@ function renderSide() {
   const side = app.querySelector('.lc-side');
   if (!side) return;
   const v = S.route.view;
-  const body = { calls: callsHtml, settings: settingsHtml, requests: requestsHtml, new: newChatHtml, group: newGroupHtml }[v] || chatsHtml;
+  const body = { calls: callsHtml, contacts: contactsHtml, settings: settingsHtml, requests: requestsHtml, new: newChatHtml, group: newGroupHtml }[v] || chatsHtml;
   side.innerHTML = body() + tabs();
 }
 
@@ -524,7 +530,10 @@ function chatsListHtml() {
   const pushHint = S.push === 'default' || (isIos() && !standalone() && S.push === 'unsupported')
     ? `<div class="lc-hint">${isIos() && !standalone() ? '📲 To get calls and messages when the app is closed, tap <b>Share → Add to Home Screen</b>, then open Lyr Chat from there.' : `🔔 Get calls and messages even when the app is closed. <button class="btn small primary" data-act="push-on">Turn on</button>`}</div>`
     : '';
-  return `${pushHint}${requests}${rows.map(convRow).join('') || `<div class="lc-empty"><p>${q ? 'No chats match.' : 'No chats yet.'}</p><a class="btn primary" href="#/new">Start a chat</a></div>`}`;
+  const onChat = S.matches.size && rows.length < 3 && !q
+    ? `<a class="lc-row lc-requests" href="#/contacts"><span class="avatar lc-av group" aria-hidden="true">👤</span><span class="lc-row-main"><b>${S.matches.size} of your contacts ${S.matches.size === 1 ? 'is' : 'are'} on Lyr Chat</b><small>Say hello or give them a call</small></span></a>`
+    : '';
+  return `${pushHint}${requests}${onChat}${rows.map(convRow).join('') || `<div class="lc-empty"><p>${q ? 'No chats match.' : 'No chats yet.'}</p><a class="btn primary" href="#/new">Start a chat</a></div>`}`;
 }
 
 function chatsHtml() {
@@ -553,7 +562,7 @@ function newChatHtml() {
   const q = S.newQuery.trim().toLowerCase();
   const match = (p) => !q || (p.name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
   const coworkers = (S.list?.contacts || []).filter(match);
-  const book = (S.book || []).filter((c) => (c.phones.length || c.emails.length) && (!q || c.name.toLowerCase().includes(q) || c.phones.some((p) => digits(p.value).includes(digits(q) || '#')) || c.emails.some((e) => e.value.toLowerCase().includes(q))));
+  const book = onLyrChat().filter((c) => contactMatches(c, q));
   const nf = S.notFound;
   const inviteRow = nf ? `
     <div class="lc-invite">
@@ -574,12 +583,91 @@ function newChatHtml() {
     <a class="lc-row" href="#/group"><span class="avatar lc-av group" aria-hidden="true">👥</span><span class="lc-row-main"><b>New group</b><small>Chat and call with several people</small></span></a>
     <div class="lc-list">
       ${coworkers.length ? `<h2 class="lc-section">People you work with</h2>${coworkers.map((p) => `<button class="lc-row" data-act="dm" data-to="${esc(p.email)}">${avatarHtml(p, 'avatar lc-av')}<span class="lc-row-main"><b>${esc(p.name || p.email)}</b><small>${esc(p.email)}</small></span></button>`).join('')}` : ''}
-      <h2 class="lc-section">Your contacts</h2>
-      ${S.book === null ? '<button class="btn" data-act="load-book">📇 Show my contacts</button><p class="lc-note">From Lyrsoft Contacts, where you can import your phone’s or Google’s contacts.</p>' : book.length ? book.slice(0, 300).map((c) => {
-        const ways = [...c.emails.map((e) => e.value), ...c.phones.map((p) => p.value)];
-        return `<button class="lc-row" data-act="dm-contact" data-id="${esc(c.id)}">${avatarHtml({ name: c.name }, 'avatar lc-av')}<span class="lc-row-main"><b>${esc(c.name)}</b><small>${esc(ways.slice(0, 2).join(' · '))}</small></span></button>`;
-      }).join('') : `<p class="lc-note">${S.book.length ? 'No contacts match.' : 'Your address book is empty.'} <a href="/app/#/contacts" target="_blank" rel="noopener">Import contacts</a></p>`}
+      <h2 class="lc-section">Your contacts on Lyr Chat</h2>
+      ${S.book === null ? '<p class="loading">Loading your contacts…</p>' : book.length ? book.slice(0, 300).map(contactRow).join('') : `<p class="lc-note">${S.matches.size ? 'No contacts match.' : 'None of your contacts are on Lyr Chat yet.'} <a href="#/contacts">All contacts</a></p>`}
     </div>`;
+}
+
+// ---------------------------------------------------------------- Contacts tab
+
+const contactMatches = (c, q) => !q || c.name.toLowerCase().includes(q) || c.phones.some((p) => digits(q) && digits(p.value).includes(digits(q))) || c.emails.some((e) => e.value.toLowerCase().includes(q));
+const onLyrChat = () => (S.book || []).filter((c) => S.matches.has(c.id));
+const reachableContact = (c) => !S.matches.has(c.id) && (c.phones.length || c.emails.length);
+
+function contactRow(c) {
+  const m = S.matches.get(c.id);
+  const sub = m ? (m.via === 'email' ? m.email : `On Lyr Chat${m.name && m.name.toLowerCase() !== c.name.split(' ')[0].toLowerCase() ? ` as ${m.name}` : ''} · ${c.phones[0]?.value || ''}`) : [c.phones[0]?.value, c.emails[0]?.value].filter(Boolean).join(' · ');
+  return `<div class="lc-row lc-contact">
+    <button class="lc-call-open" data-act="${m ? 'chat-contact' : 'invite-contact'}" data-id="${esc(c.id)}">${avatarHtml({ name: c.name }, 'avatar lc-av')}<span class="lc-row-main"><b>${esc(c.name)}</b><small>${esc(sub)}</small></span></button>
+    ${m
+      ? `<button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="0" aria-label="Voice call ${esc(c.name)}">📞</button><button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="1" aria-label="Video call ${esc(c.name)}">📹</button>`
+      : `<button class="btn small" data-act="invite-contact" data-id="${esc(c.id)}">Invite</button>`}
+  </div>`;
+}
+
+function contactsListHtml() {
+  if (S.book === null) return '<p class="loading">Loading your contacts…</p>';
+  if (!S.book.length) return `<div class="lc-empty"><p>Your Lyrsoft Contacts are empty.</p><p class="lc-note">Import your phone’s or Google’s contacts there, and everyone who’s on Lyrsoft shows up here.</p><a class="btn primary" href="/app/#/contacts" target="_blank" rel="noopener">📇 Import contacts</a></div>`;
+  const q = S.contactQuery.trim().toLowerCase();
+  const on = onLyrChat().filter((c) => contactMatches(c, q));
+  const rest = S.book.filter(reachableContact).filter((c) => contactMatches(c, q));
+  return `
+    <h2 class="lc-section">On Lyr Chat · ${on.length}</h2>
+    ${on.map(contactRow).join('') || `<p class="lc-note">${q ? 'No one matches.' : 'None of your contacts are on Lyrsoft yet. Invite them below.'}</p>`}
+    ${S.bookLimited ? '<p class="lc-note">You’ve checked a lot of numbers today; new phone numbers will be matched tomorrow.</p>' : ''}
+    <h2 class="lc-section">Invite to Lyr Chat · ${rest.length}</h2>
+    ${rest.slice(0, 500).map(contactRow).join('')}
+    ${rest.length > 500 ? `<p class="lc-note">Showing 500 of ${rest.length}. Search to find others.</p>` : ''}`;
+}
+
+function contactsHtml() {
+  return `${sideHead('Contacts', '<a class="lc-icon" href="/app/#/contacts" target="_blank" rel="noopener" title="Add or import contacts" aria-label="Add or import contacts">＋</a>')}
+    <div class="lc-search"><input type="search" placeholder="Search contacts" value="${esc(S.contactQuery)}" data-input="contact-search" aria-label="Search contacts" /></div>
+    <p class="lc-note">From your Lyrsoft Contacts. People who are on Lyrsoft (by email, or by a mobile number they verified) appear automatically.</p>
+    <div class="lc-list lc-contacts">${contactsListHtml()}</div>`;
+}
+
+// The address book and who in it is on Lyr Chat: on start, then again when it's over 5 minutes old.
+async function loadBook(force = false) {
+  if (!force && S.book && Date.now() - S.bookLoadedAt < 5 * 60_000) return;
+  S.bookLoadedAt = Date.now();
+  try {
+    const [book, found] = await Promise.all([api('GET', '/contacts'), api('GET', '/chat/address-book')]);
+    S.book = book.contacts.sort((a, b) => a.name.localeCompare(b.name));
+    S.matches = new Map(found.matches.map((m) => [m.id, m]));
+    S.bookLimited = found.limited;
+  } catch (error) {
+    S.book ??= [];
+    if (S.route.view === 'contacts') toast(error.message);
+  }
+  if (['contacts', 'new'].includes(S.route.view)) renderSide();
+  else patchList();
+}
+
+async function dmContact(id) {
+  const dm = await api('POST', '/chat/dm', { contactId: id });
+  const m = S.matches.get(id);
+  if (m) m.conv = dm.id;
+  refreshList();
+  return dm;
+}
+
+function inviteDialog(c) {
+  const phone = c.phones[0]?.value;
+  const email = c.emails[0]?.value;
+  const node = document.createElement('dialog');
+  node.className = 'dialog lc-dialog';
+  node.innerHTML = `<form method="dialog"><h2>Invite ${esc(c.name)}</h2><p class="muted">${esc(c.name.split(' ')[0])} isn’t on Lyr Chat yet${phone ? ' (or hasn’t verified their number)' : ''}. Send them the link:</p>
+    <div class="lc-invite-buttons">
+      ${phone ? `<a class="btn" href="https://wa.me/${digits(phone).replace(/^00/, '')}?text=${encodeURIComponent(INVITE_TEXT)}" target="_blank" rel="noopener">🟢 WhatsApp</a><a class="btn" href="sms:${esc(phone.replace(/[^\d+]/g, ''))}?&body=${encodeURIComponent(INVITE_TEXT)}">💬 SMS</a>` : ''}
+      ${email ? `<a class="btn" href="mailto:${esc(email)}?subject=${encodeURIComponent('Chat with me on Lyr Chat')}&body=${encodeURIComponent(INVITE_TEXT)}">✉ Email</a>` : ''}
+      <button type="button" class="btn" data-act="share-invite">↗ Share</button>
+    </div>
+    <div class="row end"><button class="btn primary">Done</button></div></form>`;
+  document.body.append(node);
+  node.addEventListener('close', () => node.remove());
+  node.addEventListener('click', (e) => e.target.closest('a') && setTimeout(() => node.close(), 100));
+  node.showModal();
 }
 
 function newGroupHtml() {
@@ -767,6 +855,7 @@ async function route() {
   if (view === 'calls' && S.calls === null) loadCalls();
   if (view === 'calls' && S.calls) loadCalls();
   if (view === 'settings') loadBlocked();
+  if (view === 'contacts' || view === 'new') loadBook();
   if (view === 'new' && S.route.params.get('to')) {
     S.newQuery = S.route.params.get('to');
     openDm(S.newQuery);
@@ -805,32 +894,30 @@ const actions = {
     } catch {}
     logout();
   },
-  'load-book': async () => {
+  dm: (t) => openDm(t.dataset.to),
+  'chat-contact': async (t) => {
     try {
-      S.book = (await api('GET', '/contacts')).contacts;
+      const dm = await dmContact(t.dataset.id);
+      go(`#/chat/${encodeURIComponent(dm.id)}`);
     } catch (error) {
       toast(error.message);
-      S.book = [];
     }
-    renderSide();
   },
-  dm: (t) => openDm(t.dataset.to),
-  'dm-contact': async (t) => {
-    const c = S.book?.find((x) => x.id === t.dataset.id);
-    if (!c) return;
-    // Their email first (no daily limit), then each number.
-    for (const way of [...c.emails.map((e) => e.value), ...c.phones.map((p) => p.value)]) {
-      try {
-        const dm = await api('POST', '/chat/dm', looksLikeEmail(way) ? { email: way.toLowerCase() } : { phone: way });
-        await refreshList();
+  'call-contact': async (t) => {
+    try {
+      const dm = await dmContact(t.dataset.id);
+      if (dm.request === 'outgoing') {
+        toast('They need to accept your message first. Say hello!');
         return go(`#/chat/${encodeURIComponent(dm.id)}`);
-      } catch (error) {
-        if (!/no lyrsoft account|verified that number/i.test(error.message)) return toast(error.message);
       }
+      await startCall(dm.id, t.dataset.video === '1');
+    } catch (error) {
+      toast(error.message);
     }
-    S.notFound = { to: c.name, phone: c.phones[0]?.value || null, email: c.emails[0]?.value || null };
-    renderSide();
-    app.querySelector('.lc-invite')?.scrollIntoView({ block: 'center' });
+  },
+  'invite-contact': (t) => {
+    const c = S.book?.find((x) => x.id === t.dataset.id);
+    if (c) inviteDialog(c);
   },
   'share-invite': async () => {
     try {
@@ -983,6 +1070,11 @@ document.addEventListener('input', (event) => {
     S.search = t.value;
     patchList();
   }
+  if (t.dataset.input === 'contact-search') {
+    S.contactQuery = t.value;
+    const list = app.querySelector('.lc-contacts');
+    if (list) list.innerHTML = contactsListHtml();
+  }
   if (t.dataset.input === 'new-query') {
     S.newQuery = t.value;
     S.notFound = null;
@@ -1071,6 +1163,7 @@ async function start() {
   }
   keepTokens();
   await refreshList();
+  loadBook();
   S.push = !('PushManager' in window) || !('Notification' in window) ? 'unsupported' : Notification.permission;
   swRegistration();
   if (S.push === 'granted') enablePush(false);

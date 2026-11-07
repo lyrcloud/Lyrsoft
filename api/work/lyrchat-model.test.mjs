@@ -121,3 +121,27 @@ test('push subscriptions and message notifications', () => {
   assert.deepEqual([group.title, group.body], ['Family', 'Ada: Hi']);
   assert.match(messagePush({ conv: 'dm.abc', meta: { type: 'dm' }, author: 'Ada', snippet: 'Hi', request: true }).title, /Message request/);
 });
+
+test('address book: matches by email, then by verified number; never yourself', async () => {
+  const { matchAddressBook, bookVersion } = await import('./lyrchat-model.mjs');
+  const profiles = [
+    { email: 'me@x.com', phone: '+8801712345678', phoneVerified: true },
+    { email: 'ana@x.com', name: 'Ana Lima' },
+    { email: 'bo@y.com', name: 'Bo Chen', phone: '+14155550123', phoneVerified: true },
+    { email: 'cy@z.com', name: 'Cy', phone: '+447700900123', phoneVerified: false },
+    { email: 'off@z.com', disabled: true },
+  ];
+  const contacts = [
+    { id: 'c1', emails: [{ value: 'ANA@x.com' }], phones: [] },
+    { id: 'c2', emails: [{ value: 'nobody@q.com' }], phones: [{ value: '(415) 555-0123' }] },
+    { id: 'c3', emails: [], phones: [{ value: '+44 7700 900123' }] },
+    { id: 'c4', emails: [{ value: 'me@x.com' }], phones: [{ value: '01712 345678' }] },
+    { id: 'c5', emails: [{ value: 'off@z.com' }], phones: [] },
+  ];
+  const { matches, phonesChecked } = matchAddressBook(contacts, profiles, 'me@x.com');
+  assert.deepEqual(matches.map((m) => [m.id, m.via, m.account]), [['c1', 'email', 'ana@x.com'], ['c2', 'phone', 'bo@y.com']]);
+  assert.equal(matches[1].firstName, 'Bo');
+  assert.equal(phonesChecked, 3);
+  assert.deepEqual(matchAddressBook(contacts, profiles, 'me@x.com', { phones: false }).matches.map((m) => m.id), ['c1']);
+  assert.notEqual(bookVersion(contacts), bookVersion([...contacts, { id: 'c6', updatedAt: '2026-11-07' }]));
+});

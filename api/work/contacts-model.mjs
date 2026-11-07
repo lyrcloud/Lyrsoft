@@ -6,7 +6,7 @@ import { ValidationError } from './model.mjs';
 export const CONTACTS_MAX = 10000; // per person
 export const IMPORT_BATCH_MAX = 500; // contacts per import request (the app sends big files in chunks)
 export const BULK_MAX = 1000; // ids per bulk delete
-export const SOCIAL_NETWORKS = ['whatsapp', 'facebook', 'messenger', 'instagram', 'threads', 'x', 'linkedin', 'telegram', 'tiktok', 'youtube', 'snapchat', 'github', 'viber', 'signal', 'wechat', 'skype', 'discord', 'other'];
+export const SOCIAL_NETWORKS = ['whatsapp', 'facebook', 'messenger', 'instagram', 'threads', 'x', 'linkedin', 'telegram', 'tiktok', 'youtube', 'snapchat', 'github', 'viber', 'signal', 'wechat', 'skype', 'discord', 'line', 'kakaotalk', 'imo', 'pinterest', 'reddit', 'twitch', 'bluesky', 'other'];
 export const SOURCES = ['manual', 'device', 'google', 'facebook', 'instagram', 'linkedin', 'telegram', 'outlook', 'icloud', 'yahoo', 'vcard', 'csv', 'json', 'lyrsoft'];
 
 const EMAIL_RE = /^[^\s@<>(),;:"]{1,64}@[^\s@<>(),;:"]{1,190}\.[^\s@<>(),;:"]{2,63}$/;

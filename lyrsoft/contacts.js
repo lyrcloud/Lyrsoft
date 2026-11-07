@@ -9,6 +9,8 @@ import { GOOGLE_CLIENT_ID } from './config.js';
 import {
   fromDeviceContact,
   fromGooglePerson,
+  messageLink,
+  PHONE_APPS,
   parseContactsFile,
   SOCIAL_NETWORKS,
   socialUrl,
@@ -146,6 +148,19 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
            <button type="button" class="contact-action lyr" disabled title="Add a phone number or email to chat or meet in Lyrsoft"><span>📹</span>Meeting</button>`,
     ].filter(Boolean).join('');
     const section = (title, body) => (body ? `<section class="contact-section"><h3>${title}</h3>${body}</section>` : '');
+    // One tap to message them on every app we know they use (WhatsApp is in the row above).
+    const appButtons = c.socials
+      .map((s, i) => [s, i, messageLink(s)])
+      .filter(([s, , link]) => link && !(s.network === 'whatsapp' && wa))
+      .map(([s, i, link]) => {
+        const net = SOCIAL_NETWORKS[s.network] || SOCIAL_NETWORKS.other;
+        const label = `${net.label}${link.verb && link.verb !== 'Message' ? ` · ${link.verb}` : ''}`;
+        const inner = `<span class="social-icon net-${esc(s.network)}" aria-hidden="true">${net.icon}</span><span class="app-btn-text"><b>${esc(net.label)}</b><small>${esc(link.copy ? link.verb : link.verb === 'Message' ? 'Message' : link.verb)}</small></span>`;
+        return link.copy
+          ? `<button type="button" class="app-btn" data-click="contacts-app-copy" data-id="${esc(c.id)}" data-i="${i}" title="${esc(label)}: ${esc(s.value)}">${inner}</button>`
+          : `<a class="app-btn" href="${esc(link.href)}" target="_blank" rel="noopener" title="${esc(label)}: ${esc(s.value)}">${inner}</a>`;
+      })
+      .join('');
     const socials = c.socials.map((s) => {
       const net = SOCIAL_NETWORKS[s.network] || SOCIAL_NETWORKS.other;
       const url = socialUrl(s);
@@ -163,6 +178,7 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
         </div>
       </header>
       ${actions ? `<div class="contact-actions">${actions}</div>` : ''}
+      <div class="contact-apps">${appButtons}<button type="button" class="app-btn add" data-click="contacts-apps" data-id="${esc(c.id)}" title="Telegram, Viber, Signal by phone number, or add Instagram, Facebook, X, Discord…"><span class="social-icon" aria-hidden="true">＋</span><span class="app-btn-text"><b>Apps</b><small>${c.phones.length ? 'More ways to reach' : 'Add a profile'}</small></span></button></div>
       <div class="contact-tools">
         <button class="btn small" data-click="contacts-edit" data-id="${esc(c.id)}">✎ Edit</button>
         <button class="btn small" data-click="contacts-favorite" data-id="${esc(c.id)}">${c.favorite ? '☆ Unfavourite' : '★ Favourite'}</button>
@@ -879,7 +895,66 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
     }
   }
 
+  // ＋ Apps: phone-number apps (Telegram, Viber, Signal) and adding a profile on any network.
+  async function appsDialog(c) {
+    const phone = c.phones[0]?.value || '';
+    const digits = phone.replace(/[^\d+]/g, '').replace(/^00/, '+');
+    const intl = digits.startsWith('+');
+    const phoneApps = phone
+      ? PHONE_APPS.map(([network, url]) => {
+          const net = SOCIAL_NETWORKS[network];
+          return `<a class="app-btn" href="${esc(url(digits.replace(/^\+/, '')))}" target="_blank" rel="noopener"><span class="social-icon net-${network}" aria-hidden="true">${net.icon}</span><span class="app-btn-text"><b>${esc(net.label)}</b><small>${esc(phone)}</small></span></a>`;
+        }).join('')
+      : '';
+    const networks = Object.entries(SOCIAL_NETWORKS).filter(([k]) => k !== 'other');
+    const result = await openDialog(`
+      <form class="apps-dialog"><h2>Reach ${esc(c.name)}</h2>
+        ${phone ? `<h3 class="apps-h">By phone number</h3><div class="contact-apps">${phoneApps}</div>${intl ? '' : '<p class="muted small">These apps need the country code (+…). Edit the number if they don’t open the right chat.</p>'}` : ''}
+        <h3 class="apps-h">Add a profile</h3>
+        <div class="network-grid">${networks.map(([k, n], i) => `<label class="network-pick"><input type="radio" name="network" value="${k}"${i === 3 ? ' checked' : ''} /><span class="social-icon net-${k}" aria-hidden="true">${n.icon}</span><span>${esc(n.label)}</span></label>`).join('')}</div>
+        <label>Username, ID, number or profile link<input name="value" maxlength="300" placeholder="@username or https://…" autocomplete="off" /></label>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Close</button><button class="btn primary">Add profile</button></div>
+      </form>`, {
+      wide: true,
+      setup(node, done) {
+        node.querySelector('form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          const data = new FormData(event.target);
+          const value = String(data.get('value') || '').trim();
+          if (!value) return node.querySelector('[name=value]').focus();
+          done({ network: data.get('network'), value });
+        });
+      },
+    });
+    if (!result) return;
+    try {
+      await patchContact(c, { socials: [...c.socials, result] });
+      toast(`Added ${SOCIAL_NETWORKS[result.network]?.label || 'profile'}`);
+      render();
+    } catch (error) {
+      toast(error.message);
+    }
+  }
+
   const clickActions = {
+    'contacts-apps': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) appsDialog(c);
+    },
+    // Apps that can't be opened at a person (WeChat, KakaoTalk, Discord names): copy their ID, then open the app.
+    'contacts-app-copy': async (target) => {
+      const s = byId(target.dataset.id)?.socials[Number(target.dataset.i)];
+      const link = s && messageLink(s);
+      if (!link) return;
+      const label = SOCIAL_NETWORKS[s.network]?.label || 'App';
+      try {
+        await navigator.clipboard.writeText(link.copy);
+        toast(`Copied “${link.copy}”. Paste it into ${label}’s search.`);
+      } catch {
+        window.prompt(`Copy this ${label} ID:`, link.copy);
+      }
+      if (link.href) window.open(link.href, '_blank', 'noopener');
+    },
     'contacts-lyr-chat': (target) => {
       const c = byId(target.dataset.id);
       if (c) lyrChat(c);

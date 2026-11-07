@@ -28,9 +28,65 @@ export const SOCIAL_NETWORKS = {
   signal: { label: 'Signal', icon: '🔵', url: null },
   wechat: { label: 'WeChat', icon: '💚', url: null },
   skype: { label: 'Skype', icon: 'S', url: (h) => `skype:${h}?chat` },
-  discord: { label: 'Discord', icon: '🎮', url: null },
+  discord: { label: 'Discord', icon: '🎮', url: (h) => (/^\d{15,20}$/.test(h) ? `https://discord.com/users/${h}` : null) },
+  line: { label: 'LINE', icon: 'L', url: (h) => `https://line.me/ti/p/~${h}` },
+  kakaotalk: { label: 'KakaoTalk', icon: 'K', url: null },
+  imo: { label: 'imo', icon: 'i', url: null },
+  pinterest: { label: 'Pinterest', icon: 'P', url: (h) => `https://pinterest.com/${h}` },
+  reddit: { label: 'Reddit', icon: 'r', url: (h) => `https://reddit.com/user/${h}` },
+  twitch: { label: 'Twitch', icon: '◆', url: (h) => `https://twitch.tv/${h}` },
+  bluesky: { label: 'Bluesky', icon: '🦋', url: (h) => `https://bsky.app/profile/${h}` },
   other: { label: 'Other', icon: '🔗', url: null },
 };
+
+// The quickest way to message someone on each network from a phone or computer:
+// { href } opens a chat (or the profile, where the app has no direct-message link);
+// { copy, href? } copies their ID first, for apps that can't be opened at a person (WeChat, Discord names…).
+const handleOf = (value) => {
+  const v = String(value || '').trim();
+  if (!/^https?:\/\//i.test(v)) return v.replace(/^@/, '').replace(/^u\//i, '');
+  const path = v.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^(@|in\/|add\/|ti\/p\/~|users?\/|u\/|profile\/)/i, '');
+  return path.split(/[/?#]/)[0].replace(/^@/, '');
+};
+const phoneDigits = (value) => String(value || '').replace(/[^\d+]/g, '').replace(/^00/, '+');
+export function messageLink(social) {
+  const value = String(social?.value || '').trim();
+  if (!value) return null;
+  const h = encodeURIComponent(handleOf(value));
+  const looksLikePhone = /^\+?[\d\s().-]{7,}$/.test(value);
+  const digits = phoneDigits(value).replace(/^\+/, '');
+  switch (social.network) {
+    case 'whatsapp': return digits.length >= 7 ? { href: `https://wa.me/${digits}`, verb: 'Chat' } : null;
+    case 'instagram': return { href: `https://ig.me/m/${h}`, verb: 'Message' };
+    case 'facebook':
+    case 'messenger': return { href: /^\d+$/.test(handleOf(value)) || !/^https?:/i.test(value) ? `https://m.me/${h}` : value.replace(/^https?:\/\/(www\.)?(facebook|fb)\.com/i, 'https://m.me'), verb: 'Message' };
+    case 'telegram': return { href: looksLikePhone ? `https://t.me/+${digits}` : `https://t.me/${h}`, verb: 'Message' };
+    case 'viber': return looksLikePhone ? { href: `viber://chat?number=%2B${digits}`, verb: 'Message' } : { copy: value, verb: 'Copy ID' };
+    case 'signal': return looksLikePhone ? { href: `https://signal.me/#p/+${digits}`, verb: 'Message' } : { copy: value, href: 'https://signal.me/', verb: 'Copy ID' };
+    case 'skype': return { href: `skype:${handleOf(value)}?chat`, verb: 'Chat' };
+    case 'snapchat': return { href: `https://www.snapchat.com/add/${h}`, verb: 'Add' };
+    case 'x': return { href: `https://x.com/${h}`, verb: 'Profile' };
+    case 'threads': return { href: `https://www.threads.net/@${h}`, verb: 'Profile' };
+    case 'discord': return /^\d{15,20}$/.test(handleOf(value)) ? { href: `https://discord.com/users/${h}`, verb: 'Message' } : { copy: handleOf(value), href: 'https://discord.com/channels/@me', verb: 'Copy name' };
+    case 'wechat': return { copy: handleOf(value), href: 'weixin://', verb: 'Copy ID' };
+    case 'line': return { href: `https://line.me/ti/p/~${h}`, verb: 'Add' };
+    case 'kakaotalk': return { copy: handleOf(value), verb: 'Copy ID' };
+    case 'imo': return looksLikePhone ? { copy: value, href: 'imo://', verb: 'Copy number' } : { copy: value, verb: 'Copy ID' };
+    case 'linkedin': return { href: socialUrl(social), verb: 'Profile' };
+    case 'reddit': return { href: `https://www.reddit.com/message/compose/?to=${h}`, verb: 'Message' };
+    default: {
+      const href = socialUrl(social);
+      return href ? { href, verb: 'Profile' } : { copy: value, verb: 'Copy' };
+    }
+  }
+}
+
+// Apps that reach anyone by phone number, even without a saved profile.
+export const PHONE_APPS = [
+  ['telegram', (d) => `https://t.me/+${d}`],
+  ['viber', (d) => `viber://chat?number=%2B${d}`],
+  ['signal', (d) => `https://signal.me/#p/+${d}`],
+];
 
 // Profile URLs are recognised as social profiles rather than plain websites.
 const URL_NETWORKS = [
@@ -46,6 +102,14 @@ const URL_NETWORKS = [
   [/(^|\.)(youtube\.com|youtu\.be)$/, 'youtube'],
   [/(^|\.)snapchat\.com$/, 'snapchat'],
   [/(^|\.)github\.com$/, 'github'],
+  [/(^|\.)(discord\.com|discord\.gg|discordapp\.com)$/, 'discord'],
+  [/(^|\.)(line\.me)$/, 'line'],
+  [/(^|\.)pinterest\.[a-z.]+$/, 'pinterest'],
+  [/(^|\.)reddit\.com$/, 'reddit'],
+  [/(^|\.)twitch\.tv$/, 'twitch'],
+  [/(^|\.)bsky\.app$/, 'bluesky'],
+  [/(^|\.)signal\.me$/, 'signal'],
+  [/(^|\.)skype\.com$/, 'skype'],
 ];
 
 export function networkOfUrl(url) {
@@ -70,6 +134,7 @@ export function socialUrl({ network, value }) {
 
 const NETWORK_ALIASES = {
   twitter: 'x', 'x.com': 'x', fb: 'facebook', ig: 'instagram', wa: 'whatsapp', tg: 'telegram', 'linked in': 'linkedin', yt: 'youtube',
+  kakao: 'kakaotalk', 'kakao talk': 'kakaotalk', weixin: 'wechat', 'we chat': 'wechat', bsky: 'bluesky', snap: 'snapchat',
 };
 export function networkOf(name) {
   const key = String(name || '').toLowerCase().replace(/^x-/, '').replace(/[^a-z. ]/g, '').trim();

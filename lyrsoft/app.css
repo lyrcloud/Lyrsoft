@@ -5634,3 +5634,35 @@ kbd {
     transition: none;
   }
 }
+
+/* Contacts: Lyr Chat and Meeting next to Call / Text / WhatsApp / Email */
+button.contact-action {
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.contact-action.lyr {
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+  background: linear-gradient(135deg, var(--brand-tint), color-mix(in srgb, var(--brand-2) 8%, transparent));
+  color: var(--brand-strong);
+}
+
+.contact-action.lyr:hover:not(:disabled) {
+  border-color: var(--brand);
+  transform: translateY(-1px);
+}
+
+.contact-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.meet-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}

@@ -137,7 +137,7 @@ const mail = createMail({ api, esc, toast, render: () => render(), go, withParam
 const account = createAccount({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const chat = createChat({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const meetings = createMeetings({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me, dialog: (...args) => dialog(...args), chat });
-const contacts = createContacts({ api, esc, toast, render: () => render(), go, initial, formatDateTime });
+const contacts = createContacts({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const marketing = createMarketing({ api, esc, toast, render: () => render(), go, formatDateTime, getMe: () => state.me, getWs: () => state.ws });
 // Everywhere the command palette (Ctrl/⌘ K) can jump to.
 function paletteTargets() {

@@ -28,7 +28,7 @@ const SOURCE_NAMES = {
 };
 const AVATAR_COLORS = ['#6c5ce7', '#00a65f', '#e17055', '#0984e3', '#d63031', '#00b894', '#e84393', '#fdab3d', '#2d3436', '#a25ddc'];
 
-export function createContacts({ api, esc, toast, render, go, initial, formatDateTime }) {
+export function createContacts({ api, esc, toast, render, go, initial, formatDateTime, getMe = () => null }) {
   const book = { contacts: null, max: 10000, query: '', filter: 'all', selected: new Set() };
   let route = null;
 
@@ -138,6 +138,12 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
       phone && `<a class="contact-action" href="sms:${esc(phone.replace(/[^\d+]/g, ''))}"><span>💬</span>Text</a>`,
       wa && wa.replace(/\D/g, '').length >= 7 && `<a class="contact-action" href="${esc(socialUrl({ network: 'whatsapp', value: wa }))}" target="_blank" rel="noopener"><span>🟢</span>WhatsApp</a>`,
       email && `<a class="contact-action" href="mailto:${esc(email)}"><span>✉</span>Email</a>`,
+      // Lyrsoft's own chat and video meetings, for anyone with an email address.
+      email
+        ? `<button type="button" class="contact-action lyr" data-click="contacts-lyr-chat" data-id="${esc(c.id)}"><span>💬</span>Lyr Chat</button>
+           <button type="button" class="contact-action lyr" data-click="contacts-meeting" data-id="${esc(c.id)}"><span>📹</span>Meeting</button>`
+        : `<button type="button" class="contact-action lyr" disabled title="Add an email address to chat or meet in Lyrsoft"><span>💬</span>Lyr Chat</button>
+           <button type="button" class="contact-action lyr" disabled title="Add an email address to chat or meet in Lyrsoft"><span>📹</span>Meeting</button>`,
     ].filter(Boolean).join('');
     const section = (title, body) => (body ? `<section class="contact-section"><h3>${title}</h3>${body}</section>` : '');
     const socials = c.socials.map((s) => {
@@ -697,7 +703,123 @@ export function createContacts({ api, esc, toast, render, go, initial, formatDat
     return c;
   }
 
+  // ---------------------------------------------------------------- Lyr Chat and meetings
+
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const emailsOf = (c) => c.emails.map((e) => e.value);
+
+  // Picks one of the contact's emails when they have several.
+  async function pickEmail(c, action) {
+    const emails = emailsOf(c);
+    if (emails.length < 2) return emails[0] || null;
+    return openDialog(`
+      <form><h2>${esc(action)} ${esc(c.name)}</h2>
+        <p class="muted small">Which address?</p>
+        <div class="stack">${emails.map((e, i) => `<label class="check"><input type="radio" name="email" value="${esc(e)}"${i ? '' : ' checked'} /> ${esc(e)}</label>`).join('')}</div>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn primary">Continue</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        node.querySelector('form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(new FormData(event.target).get('email'));
+        });
+      },
+    });
+  }
+
+  async function lyrChat(c) {
+    const email = await pickEmail(c, 'Chat with');
+    if (!email) return;
+    if (email === getMe()?.email) return toast('That’s you!');
+    try {
+      const { id } = await api('POST', '/chat/dm', { email });
+      go(`#/chat/${encodeURIComponent(id)}`);
+      return;
+    } catch (error) {
+      if (!/share a workspace/i.test(error.message)) return toast(error.message);
+    }
+    // Not working together yet: offer to add them to one of my workspaces, then open the chat.
+    const spaces = (getMe()?.workspaces || []).filter((w) => w.role === 'owner' || w.role === 'admin');
+    if (!spaces.length) return toast(`${c.name} isn’t in any of your workspaces. Ask a workspace owner to add ${email}, or start a Meeting instead.`);
+    const ws = await openDialog(`
+      <form><h2>Chat with ${esc(c.name)}</h2>
+        <p>${esc(email)} isn’t in any of your workspaces yet. Add them to one to chat in Lyrsoft. They’ll see it when they sign in with that email.</p>
+        <label>Workspace<select name="ws">${spaces.map((w) => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('')}</select></label>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn primary">Add and chat</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        node.querySelector('form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(new FormData(event.target).get('ws'));
+        });
+      },
+    });
+    if (!ws) return;
+    try {
+      await api('POST', `/workspaces/${encodeURIComponent(ws)}/members`, { email, role: 'member' });
+      const { id } = await api('POST', '/chat/dm', { email });
+      toast(`Added ${c.name} to the workspace`);
+      go(`#/chat/${encodeURIComponent(id)}`);
+    } catch (error) {
+      toast(error.message);
+    }
+  }
+
+  async function meeting(c) {
+    const email = await pickEmail(c, 'Meet');
+    if (!email) return;
+    if (email === getMe()?.email) return toast('That’s you!');
+    const soon = new Date(Date.now() + 3600e3);
+    soon.setMinutes(0, 0, 0);
+    const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+    const choice = await openDialog(`
+      <form><h2>Meet ${esc(c.name)}</h2>
+        <p class="muted small">They get an email with a Join link (${esc(email)}). They join by signing in to Lyrsoft with that email.</p>
+        <div class="meet-choice">
+          <button type="button" class="btn primary big" data-now>📹 Call now</button>
+          <span class="muted small">or schedule it</span>
+        </div>
+        <div class="form-grid">
+          <label>When<input type="datetime-local" name="startsAt" value="${local(soon)}" min="${local(new Date())}" /></label>
+          <label>Length<select name="durationMin">${[15, 30, 45, 60, 90, 120].map((m) => `<option value="${m}"${m === 30 ? ' selected' : ''}>${m} minutes</option>`).join('')}</select></label>
+        </div>
+        <label>Title<input name="title" maxlength="100" value="${esc(`${getMe()?.name ? `${getMe().name.split(' ')[0]} and ` : 'Call with '}${c.name.split(' ')[0]}`)}" /></label>
+        <div class="row end"><button type="button" class="btn" data-dialog-close>Cancel</button><button class="btn">🕑 Schedule</button></div>
+      </form>`, {
+      wide: false,
+      setup(node, done) {
+        const form = node.querySelector('form');
+        node.querySelector('[data-now]').addEventListener('click', () => done({ now: true, title: form.elements.title.value }));
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          done(Object.fromEntries(new FormData(form)));
+        });
+      },
+    });
+    if (!choice) return;
+    try {
+      const title = String(choice.title || '').trim() || `Call with ${c.name}`;
+      const { meeting: m, emailed } = await api('POST', '/meetings', choice.now
+        ? { title, durationMin: 60, invitees: [email], timeZone }
+        : { title, startsAt: new Date(choice.startsAt).toISOString(), durationMin: Number(choice.durationMin), invitees: [email], timeZone });
+      toast(emailed ? `Invitation emailed to ${email}` : 'Meeting created');
+      go(choice.now ? `#/meet/${encodeURIComponent(m.id)}` : '#/meetings');
+    } catch (error) {
+      toast(error.message);
+    }
+  }
+
   const clickActions = {
+    'contacts-lyr-chat': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) lyrChat(c);
+    },
+    'contacts-meeting': (target) => {
+      const c = byId(target.dataset.id);
+      if (c) meeting(c);
+    },
     'contacts-new': async () => {
       const contact = await editContact(null);
       if (!contact) return;

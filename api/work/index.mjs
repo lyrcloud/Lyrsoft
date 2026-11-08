@@ -17,6 +17,7 @@
 //   RATE#sms#<sub> | RATE#sms#all  <day>   mobile codes texted (expires via TTL)
 //   CONTACTS#<sub> C#<id>          a contact in someone's address book (contacts.mjs)
 //   MKT#<ws> …, MKTC#<campaign> …   Lyrsoft Marketing: subscribers, campaigns, forms (marketing.mjs)
+//   HR#<ws> …, HRKEY#<hash>         Lyrsoft HR: employees, attendance, leave, payroll, devices (hr.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -82,6 +83,7 @@ import { registerMailRoutes } from '../mail/routes.mjs';
 import { createMailStore } from '../mail/store.mjs';
 import { channelId, registerCollabRoutes } from './collab.mjs';
 import { registerContactRoutes } from './contacts.mjs';
+import { registerHrRoutes } from './hr.mjs';
 import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -871,6 +873,8 @@ const collab = registerCollabRoutes(route, {
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
 
+const hr = registerHrRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, countUse: (key, period) => countUse(key, period) });
+
 // One marketing email through SES, tagged so bounce and complaint events can find the workspace.
 async function sendMarketingEmail({ from, to, replyTo, subject, text, html, headers = [], tags = {} }) {
   const raw = buildRawEmail({
@@ -1055,6 +1059,11 @@ export const handler = async (event) => {
     if (method === 'POST' && path === '/public/contact') return await submitContact(event);
     if (method === 'POST' && path === '/public/lyrbot') return await lyrbotChat(event);
     if ((method === 'GET' || method === 'POST') && path === '/public/unsubscribe') return await unsubscribe(event, method);
+    if (method === 'POST' && path === '/public/hr/punch') {
+      const body = parseBody(event);
+      if (!body) throw new HttpError(400, 'Invalid JSON body.');
+      return json(200, await hr.publicPunch(body, event.headers || {}));
+    }
     if (method === 'POST' && path === '/public/call') {
       const body = parseBody(event);
       if (!body) throw new HttpError(400, 'Invalid JSON body.');

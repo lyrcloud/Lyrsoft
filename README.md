@@ -40,6 +40,17 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Export:** vCard 3.0 (phones, Google, iCloud, Outlook), Google CSV, Outlook CSV or a Lyrsoft JSON backup, downloaded or sent through the phone's share sheet; one contact can be shared as a .vcf. WhatsApp, Telegram and Meta's apps read the phone's contacts, so contacts reach them through the phone.
 - **Google import setup:** create an OAuth web client in Google Cloud with the People API enabled, add `https://lyrsoft.com` as an authorised JavaScript origin, and deploy with `LYRSOFT_GOOGLE_CLIENT_ID=<client id> npm run deploy`. The app asks only for read-only contacts access; the token stays in the browser.
 
+## HR and payroll
+
+**Lyrsoft HR** (`/app/#/w/<workspace>/hr`, `lyrsoft/hr.js`, API in `api/work/hr.mjs`, rules in `api/work/hr-model.mjs`) runs a workspace's people and pay:
+
+- **Employees:** profile, job, own shift, salary (basic plus house, medical, transport, food and other allowances; tax and provident fund percentages; overtime rate), bank account and biometric device ID. Export to CSV.
+- **Time and attendance:** employees check in and out from the web or the Lyrsoft app (optionally with their location), or on a biometric device. Each day is worked out in the company's time zone: present, late (after the grace minutes), half day, absent, leave, day off or holiday, with worked hours and overtime. Night shifts stay on the day they started. Managers correct any day (with a note), and see a daily sheet and a monthly report (CSV).
+- **Leave:** annual, sick, casual, maternity, unpaid and other, with yearly allowances and balances. Employees ask, managers approve or reject (or add leave directly). Days off and holidays inside a leave aren't counted.
+- **Payroll:** a month's draft counts salary (prorated for joiners and leavers), absences, unpaid leave, the late rule (every N late arrivals cost a day), overtime, tax and provident fund; managers type bonuses, advances and deductions into the table. Make it final (employees then see their payslips), mark it paid, export a bank sheet, print payslips.
+- **Who can do what:** workspace owners and admins, plus the HR managers named in settings, see everything. Everyone else sees only their own record, matched by their sign-in email.
+- **Biometric devices:** register a device in HR settings to get its key, then the device (or a small bridge next to it) posts punches to `POST https://lyrsoft.com/public/hr/punch` with `{ "key": "lyrhr_…", "punches": [{ "user": "<ID on the device>", "at": "2026-11-08 09:02:41" }] }`. Times without an offset are read in the company's time zone; repeats within a minute are ignored, so resending is safe.
+
 ## Marketing
 
 **Lyrsoft Marketing** (`/app/#/w/<workspace>/marketing`, `lyrsoft/marketing.js`, API in `api/work/marketing.mjs`) gives every workspace email marketing:

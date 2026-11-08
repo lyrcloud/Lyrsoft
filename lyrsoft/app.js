@@ -8,6 +8,7 @@ import { createMarketing } from './marketing.js';
 import { createHR } from './hr.js';
 import { createGrowth } from './growth.js';
 import { createFinance } from './finance.js';
+import { createOps } from './ops.js';
 import { createUI, searchButton, themeButton } from './ui.js';
 import { createMeetings } from './meet.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
@@ -116,6 +117,7 @@ function parseRoute() {
   if (parts[0] === 'w' && parts[1]) {
     if (parts[2] === 'b' && parts[3]) return { view: 'board', ws: parts[1], board: parts[3], params };
     if (parts[2] === 'team') return { view: 'team', ws: parts[1], params };
+    if (parts[2] === 'ops') return { view: 'ops', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
     if (parts[2] === 'finance') return { view: 'finance', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
     if (parts[2] === 'growth') return { view: 'growth', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
     if (parts[2] === 'hr') return { view: 'hr', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
@@ -147,6 +149,7 @@ const meetings = createMeetings({ api, esc, toast, render: () => render(), go, i
 const contacts = createContacts({ api, esc, toast, render: () => render(), go, initial, formatDateTime, getMe: () => state.me });
 const marketing = createMarketing({ api, esc, toast, render: () => render(), go, formatDateTime, getMe: () => state.me, getWs: () => state.ws });
 const finance = createFinance({ api, esc, toast, render: () => render(), go });
+const ops = createOps({ api, esc, toast, render: () => render(), go });
 const growth = createGrowth({ api, esc, toast, render: () => render(), go, formatDateTime });
 const hr = createHR({ api, esc, toast, render: () => render(), go, formatDateTime, getMe: () => state.me });
 // Everywhere the command palette (Ctrl/⌘ K) can jump to.
@@ -163,6 +166,7 @@ function paletteTargets() {
   if (me.globalRole !== 'user') out.push({ group: 'Pages', label: 'Admin console', icon: '🛡', href: '#/admin' });
   const current = state.ws?.workspace.id;
   const workspaces = [...me.workspaces].sort((a, b) => (b.id === current) - (a.id === current));
+  for (const w of workspaces) out.push({ group: 'Performance & maintenance', label: `Performance & maintenance · ${w.name}`, icon: '🩺', href: `#/w/${encodeURIComponent(w.id)}/ops` });
   for (const w of workspaces) out.push({ group: 'Costs & analytics', label: `Costs & analytics · ${w.name}`, icon: '📊', href: `#/w/${encodeURIComponent(w.id)}/finance` });
   for (const w of workspaces) out.push({ group: 'Ads & budget', label: `Ads & budget · ${w.name}`, icon: '📈', href: `#/w/${encodeURIComponent(w.id)}/growth` });
   for (const w of workspaces) out.push({ group: 'HR', label: `HR · ${w.name}`, icon: '🧑‍💼', href: `#/w/${encodeURIComponent(w.id)}/hr` });
@@ -222,6 +226,7 @@ async function load() {
     await hr.load(route);
     await growth.load(route);
     await finance.load(route);
+    await ops.load(route);
   } catch (error) {
     if (seq === loadSeq) state.error = error.message;
   }
@@ -230,7 +235,32 @@ async function load() {
 
 // ------------------------------------------------------------------ shell
 
+// Every sidebar group (Boards, Workspace, Communicate, Mail, Account…) folds up under its heading.
+// Which ones are folded is remembered on this device; a folded group still shows the page you're on.
+const NAV_KEY = 'lyrsoft.nav.collapsed';
+const navCollapsed = (() => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NAV_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+})();
+function collapsibleNav(html) {
+  return html.replace(/<nav aria-label="([^"]+)">\s*<p class="nav-label">([^<]+)<\/p>([\s\S]*?)<\/nav>/g, (_, aria, label, items) => {
+    const key = label.trim();
+    const closed = navCollapsed.has(key);
+    const id = `nav-${key.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    return `<nav aria-label="${aria}" class="nav-group${closed ? ' collapsed' : ''}">
+      <button type="button" class="nav-label nav-toggle" data-click="nav-toggle" data-nav="${key}" aria-expanded="${!closed}" aria-controls="${id}"><span>${key}</span><i class="nav-caret" aria-hidden="true"></i></button>
+      <div class="nav-items" id="${id}">${items}</div></nav>`;
+  });
+}
+
 function sidebar() {
+  return collapsibleNav(sidebarHtml());
+}
+
+function sidebarHtml() {
   const workspaces = state.me?.workspaces || [];
   const ws = state.ws;
   return `
@@ -251,11 +281,14 @@ function sidebar() {
                 .map((b) => `<a href="#/w/${esc(ws.workspace.id)}/b/${esc(b.id)}"${b.id === route.board ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">▦</span>${esc(b.name)}</a>`)
                 .join('')}
               <button class="nav-add" data-click="new-board">+ New board</button>
+            </nav>
+            <nav aria-label="Workspace">
               <p class="nav-label">Workspace</p>
               <a href="#/w/${esc(ws.workspace.id)}/hr"${route.view === 'hr' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">🧑‍💼</span>HR &amp; payroll</a>
               <a href="#/w/${esc(ws.workspace.id)}/marketing"${route.view === 'marketing' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📣</span>Marketing</a>
               <a href="#/w/${esc(ws.workspace.id)}/growth"${route.view === 'growth' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📈</span>Ads &amp; budget</a>
               <a href="#/w/${esc(ws.workspace.id)}/finance"${route.view === 'finance' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📊</span>Costs &amp; analytics</a>
+              <a href="#/w/${esc(ws.workspace.id)}/ops"${route.view === 'ops' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">🩺</span>Performance &amp; maintenance</a>
               <a href="#/w/${esc(ws.workspace.id)}/team"${route.view === 'team' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">👥</span>Team &amp; settings</a>
             </nav>`
           : workspaces.length
@@ -265,6 +298,7 @@ function sidebar() {
                 <a href="#/w/${esc(workspaces[0].id)}/marketing"><span class="nav-icon" aria-hidden="true">📣</span>Marketing</a>
                 <a href="#/w/${esc(workspaces[0].id)}/growth"><span class="nav-icon" aria-hidden="true">📈</span>Ads &amp; budget</a>
                 <a href="#/w/${esc(workspaces[0].id)}/finance"><span class="nav-icon" aria-hidden="true">📊</span>Costs &amp; analytics</a>
+                <a href="#/w/${esc(workspaces[0].id)}/ops"><span class="nav-icon" aria-hidden="true">🩺</span>Performance &amp; maintenance</a>
               </nav>`
             : ''
       }
@@ -274,7 +308,7 @@ function sidebar() {
     </aside>`;
 }
 
-const CRUMBS = { lyrchat: 'Lyr Chat', profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing', hr: 'HR', growth: 'Ads & budget', finance: 'Costs & analytics' };
+const CRUMBS = { ops: 'Performance & maintenance', lyrchat: 'Lyr Chat', profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing', hr: 'HR', growth: 'Ads & budget', finance: 'Costs & analytics' };
 const crumb = () => (route.view.startsWith('mail') ? 'Mail' : CRUMBS[route.view] || state.ws?.workspace.name || 'Lyrsoft Work');
 
 function topbar() {
@@ -305,7 +339,7 @@ function render() {
   let content;
   if (state.error) {
     content = `<section class="panel empty"><h2>Something went wrong</h2><p>${esc(state.error)}</p><a class="btn primary" href="#/">Go to my workspaces</a></section>`;
-  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route) || !chat.ready(route) || !meetings.ready(route) || !contacts.ready(route) || !marketing.ready(route) || !hr.ready(route) || !growth.ready(route) || !finance.ready(route)) {
+  } else if (!state.me || (route.ws && !state.ws) || (route.view === 'board' && !state.board) || (route.view.startsWith('mail') && !mail.ready(route)) || !account.ready(route) || !chat.ready(route) || !meetings.ready(route) || !contacts.ready(route) || !marketing.ready(route) || !hr.ready(route) || !growth.ready(route) || !finance.ready(route) || !ops.ready(route)) {
     content = '<p class="loading">Loading…</p>';
   } else {
     content = route.view.startsWith('mail')
@@ -326,6 +360,8 @@ function render() {
             ? growth.view(route)
             : route.view === 'finance'
             ? finance.view(route)
+            : route.view === 'ops'
+            ? ops.view(route)
           : isCollabView()
             ? meetings.view(route)
             : views[route.view]();
@@ -334,7 +370,7 @@ function render() {
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content${route.view === 'lyrchat' ? ' wide lyrchat-content' : ''}${['chat', 'contacts', 'marketing', 'hr', 'growth', 'finance', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
+      <main class="content${route.view === 'lyrchat' ? ' wide lyrchat-content' : ''}${['chat', 'contacts', 'marketing', 'hr', 'growth', 'finance', 'ops', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
@@ -343,7 +379,7 @@ function render() {
   meetings.afterRender();
   ui.afterRender(location.hash.split('?')[0] || '#/');
   placeLyrChat();
-  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : route.view === 'hr' ? `HR · ${state.ws?.workspace.name || ''}` : route.view === 'growth' ? `Ads & budget · ${state.ws?.workspace.name || ''}` : route.view === 'finance' ? `Costs & analytics · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
+  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : route.view === 'hr' ? `HR · ${state.ws?.workspace.name || ''}` : route.view === 'growth' ? `Ads & budget · ${state.ws?.workspace.name || ''}` : route.view === 'finance' ? `Costs & analytics · ${state.ws?.workspace.name || ''}` : route.view === 'ops' ? `Performance & maintenance · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
 // ------------------------------------------------------------------ Lyr Chat inside Lyrsoft Work
@@ -775,6 +811,19 @@ async function createItem(groupId, name) {
 
 const clickActions = {
   'toggle-sidebar': () => app.classList.toggle('sidebar-open'),
+  'nav-toggle': (target) => {
+    const key = target.dataset.nav;
+    const closed = !navCollapsed.has(key);
+    if (closed) navCollapsed.add(key);
+    else navCollapsed.delete(key);
+    target.closest('.nav-group').classList.toggle('collapsed', closed);
+    target.setAttribute('aria-expanded', String(!closed));
+    try {
+      localStorage.setItem(NAV_KEY, JSON.stringify([...navCollapsed]));
+    } catch {
+      // private mode: it just won't be remembered
+    }
+  },
   'sign-out': () => logout(),
   'close-item': () => go(withParams({ item: null })),
   'toggle-group': (target) => {
@@ -1058,10 +1107,10 @@ const formActions = {
   },
 };
 
-Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions, contacts.clickActions, marketing.clickActions, hr.clickActions, growth.clickActions, finance.clickActions, ui.clickActions);
+Object.assign(clickActions, mail.clickActions, account.clickActions, chat.clickActions, meetings.clickActions, contacts.clickActions, marketing.clickActions, hr.clickActions, growth.clickActions, finance.clickActions, ops.clickActions, ui.clickActions);
 Object.assign(changeActions, account.changeActions, mail.changeActions, contacts.changeActions, marketing.changeActions, hr.changeActions, finance.changeActions);
 const inputActions = { ...account.inputActions, ...mail.inputActions, ...chat.inputActions, ...contacts.inputActions, ...marketing.inputActions, ...hr.inputActions, ...finance.inputActions };
-Object.assign(formActions, mail.formActions, account.formActions, chat.formActions, meetings.formActions, marketing.formActions, hr.formActions, growth.formActions, finance.formActions);
+Object.assign(formActions, mail.formActions, account.formActions, chat.formActions, meetings.formActions, marketing.formActions, hr.formActions, growth.formActions, finance.formActions, ops.formActions);
 
 app.addEventListener('click', (event) => {
   const target = event.target.closest('[data-click]');

@@ -51,6 +51,17 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Who can do what:** workspace owners and admins, plus the HR managers named in settings, see everything. Everyone else sees only their own record, matched by their sign-in email.
 - **Biometric devices:** register a device in HR settings to get its key, then the device (or a small bridge next to it) posts punches to `POST https://lyrsoft.com/public/hr/punch` with `{ "key": "lyrhr_…", "punches": [{ "user": "<ID on the device>", "at": "2026-11-08 09:02:41" }] }`. Times without an offset are read in the company's time zone; repeats within a minute are ignored, so resending is safe.
 
+## Performance and maintenance
+
+**Lyrsoft Performance & maintenance** (`/app/#/w/<workspace>/ops`, `lyrsoft/ops.js`, API in `api/work/ops.mjs`, rules in `api/work/ops-model.mjs`) watches a workspace's websites, web apps and APIs and keeps their upkeep on schedule:
+
+- **Monitors:** up to 25 addresses per workspace, checked every 1–60 minutes by the one-minute EventBridge tick from Lyrsoft's servers. Each check records the HTTP status, full response time, time to first byte and page size, and can require a word on the page. Only public addresses can be checked (private, local and cloud-metadata addresses are refused, and redirects aren't followed).
+- **Status:** up, slow (over the monitor's threshold), down or in maintenance; uptime today, 7 and 30 days; response-time charts over 24 hours, 7, 30 or 90 days; a strip of the last 60 checks.
+- **SSL and domain:** certificate expiry and issuer, and domain registration expiry (RDAP), read daily, with an email warning 21 days (SSL) or 42 days (domain) ahead.
+- **Incidents:** open after the set number of failures in a row (2 by default) and close on the next good check; the alert list gets an email both times. Record the cause and notes on each.
+- **Maintenance:** planned windows (failures inside them don't alert or count against uptime), a recurring checklist (backups, updates, security, renewals, performance, content) that moves to its next due date when ticked off, and a work log.
+- **Who:** workspace owners and admins, and the people they add in its settings. Only owners and admins add or change monitors.
+
 ## Costs and analytics
 
 **Lyrsoft Costs & analytics** (`/app/#/w/<workspace>/finance`, `lyrsoft/finance.js`, charts in `lyrsoft/charts.js`, API in `api/work/finance.mjs`, rules in `api/work/finance-model.mjs`) tracks where a workspace's money comes from and goes:

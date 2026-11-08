@@ -7302,3 +7302,314 @@ td .gr-bar {
     margin-right: 56px;
   }
 }
+
+/* ------------------------------------------------------------ collapsible sidebar groups */
+
+.sidebar nav.nav-group {
+  gap: 0;
+}
+.sidebar .nav-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: calc(100% - 8px);
+  padding: 4px 6px 4px 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-toggle:hover {
+  color: var(--text);
+}
+.nav-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.nav-caret {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s;
+}
+.nav-group.collapsed .nav-caret {
+  transform: rotate(-45deg);
+}
+/* Folded: everything hides except the page you're on. */
+.nav-group.collapsed .nav-items > :not([aria-current='page']) {
+  display: none;
+}
+/* A folded group with unread counts in it gets a dot on its heading. */
+.nav-group.collapsed:has(.count:not([hidden]):not(:empty)) .nav-toggle span::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+  vertical-align: middle;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-caret {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------ Performance & maintenance (ops.js) */
+
+.ops {
+  --ops-up: #00a65f;
+  --ops-slow: #e08a00;
+  --ops-down: #d83a52;
+  --ops-maint: #579bfc;
+  --ops-off: #8a90a2;
+}
+.ops-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ops-c, var(--ops-off)) 15%, transparent);
+  color: var(--ops-c, var(--ops-off));
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ops-badge i {
+  font-style: normal;
+  font-size: 0.7rem;
+}
+.ops-up { --ops-c: var(--ops-up); }
+.ops-slow { --ops-c: var(--ops-slow); }
+.ops-down { --ops-c: var(--ops-down); }
+.ops-maint { --ops-c: var(--ops-maint); }
+.ops-paused { --ops-c: var(--ops-off); }
+.ops-txt-down { color: var(--ops-down, #d83a52); font-weight: 700; }
+.ops-txt-slow { color: var(--ops-slow, #e08a00); font-weight: 700; }
+
+.ops-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--ops-c) 35%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ops-c) 10%, var(--surface));
+}
+.ops-banner b {
+  color: var(--ops-c);
+  font-size: 1.05rem;
+}
+.ops-banner.good { --ops-c: var(--ops-up); }
+.ops-banner.warn { --ops-c: var(--ops-slow); }
+.ops-banner.bad { --ops-c: var(--ops-down); }
+
+.ops-warn {
+  border-color: color-mix(in srgb, var(--ops-slow) 45%, var(--line));
+}
+.ops-warn h2 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+.ops-maint-note p {
+  margin: 4px 0;
+}
+
+.ops-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+.ops-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  border-top: 3px solid var(--ops-c, var(--line));
+}
+.ops-card header,
+.ops-card footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+.ops-card-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.ops-card-title b {
+  font-size: 1.02rem;
+}
+.ops-card-title small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ops-card-title:hover b {
+  text-decoration: underline;
+}
+.ops-facts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+.ops-facts div {
+  min-width: 0;
+}
+.ops-facts dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ops-facts dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ops-exp {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.ops-exp-item {
+  font-style: normal;
+}
+.ops .segmented.small {
+  width: fit-content;
+  max-width: 100%;
+}
+.ops-problem {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ops-down) 10%, transparent);
+  color: var(--ops-down);
+  font-size: 0.88rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Status strip: one bar per check, height = response time; failures are full-height in red. */
+.ops-strip {
+  display: grid;
+  grid-template-columns: repeat(60, 1fr);
+  align-items: end;
+  gap: 1px;
+  height: 34px;
+}
+.ops-strip.empty {
+  display: flex;
+  align-items: center;
+}
+.ops-strip i {
+  height: var(--h, 100%);
+  min-height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--ops-c, var(--ops-up));
+}
+.ops-strip i.none {
+  height: 3px;
+  background: var(--line);
+}
+.ops-strip i.ops-up {
+  background: color-mix(in srgb, var(--ops-up) 75%, transparent);
+}
+
+.ops-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ops-head h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+.ops-head p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.ops .segmented.small {
+  margin: 0 0 14px;
+}
+.ops-h2 {
+  margin: 18px 0 8px;
+  font-size: 1.1rem;
+}
+.ops .hr-toolbar .ops-h2 {
+  margin: 0;
+}
+.ops-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.ops-pick p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.ops-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ops-log li {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+.ops-log li:first-child {
+  border-top: 0;
+}
+.ops-log time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .ops-facts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ops-log li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

@@ -12,6 +12,7 @@
 //                        simulates an incoming email through the real processor (api/mail/inbound.mjs)
 //   GET  /__dev/sent     what the app "sent" through SES
 //   GET  /__dev/sms      texts the app "sent" through SNS (mobile verification codes)
+//   POST /__dev/tick     runs the one-minute tick now (campaigns, ad sync, site and app checks)
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 
@@ -88,6 +89,7 @@ async function devRoute(request, url, body, response) {
   if (request.method === 'POST' && url.pathname === '/__dev/inbound') return send(200, await simulateInbound(JSON.parse(body || '{}')));
   if (request.method === 'GET' && url.pathname === '/__dev/sent') return send(200, fakeAws.sentMail);
   if (request.method === 'GET' && url.pathname === '/__dev/sms') return send(200, fakeAws.sentSms);
+  if (request.method === 'POST' && url.pathname === '/__dev/tick') return send(200, (await handler({ lyrsoftTask: 'marketing-tick' })) ?? { ok: true });
   if (request.method === 'PUT' && url.pathname.startsWith('/__dev/s3put/')) {
     fakeAws.objects.set(decodeURIComponent(url.pathname.slice('/__dev/s3put/'.length)), { body: Buffer.from(body, 'latin1'), contentType: request.headers['content-type'] });
     return send(200, { ok: true });

@@ -51,6 +51,17 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Who can do what:** workspace owners and admins, plus the HR managers named in settings, see everything. Everyone else sees only their own record, matched by their sign-in email.
 - **Biometric devices:** register a device in HR settings to get its key, then the device (or a small bridge next to it) posts punches to `POST https://lyrsoft.com/public/hr/punch` with `{ "key": "lyrhr_…", "punches": [{ "user": "<ID on the device>", "at": "2026-11-08 09:02:41" }] }`. Times without an offset are read in the company's time zone; repeats within a minute are ignored, so resending is safe.
 
+## Costs and analytics
+
+**Lyrsoft Costs & analytics** (`/app/#/w/<workspace>/finance`, `lyrsoft/finance.js`, charts in `lyrsoft/charts.js`, API in `api/work/finance.mjs`, rules in `api/work/finance-model.mjs`) tracks where a workspace's money comes from and goes:
+
+- **Entries:** costs and income with category, vendor or client, department, project, payment method (cash, bank, card, bKash, Nagad, Rocket, cheque), reference, and paid / unpaid with a due date. Import a bank or mobile-money statement (CSV; columns are matched for you, categories guessed from the description). Export to CSV.
+- **Recurring costs:** rent, internet, subscriptions, monthly, quarterly or yearly; they add themselves on their day.
+- **Budgets and categories:** your own cost and income categories, each cost category with a monthly budget.
+- **Linked costs:** salaries from HR payroll (final or paid runs) and ad spend from Ads & budget are counted automatically.
+- **Analysis:** income, costs, profit and margin against last month; budget used; unpaid and overdue bills; charts of income and costs, profit and loss, and costs by category over 6, 12 or 24 months; spending against each category's budget; costs through the month against the budget's pace with a month-end forecast; where the money went; top vendors; costs by department and project. Every chart has hover details, keyboard reading and a table view.
+- **Who:** workspace owners and admins, and the people they add in its settings.
+
 ## Ads and budget
 
 **Lyrsoft Ads & budget** (`/app/#/w/<workspace>/growth`, `lyrsoft/growth.js`, API in `api/work/growth.mjs`, platform calls in `api/work/growth-connectors.mjs`) brings a workspace's marketing platforms together:

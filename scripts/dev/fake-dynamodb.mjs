@@ -122,6 +122,9 @@ function query({ TableName, IndexName, KeyConditionExpression, FilterExpression,
     const [, , pk, , op, value] = match;
     const cmp = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b }[op];
     items = [...table(TableName).values()].filter((item) => item[hashKey] === v[pk] && typeof item[sortKey] === 'string' && cmp(item[sortKey], v[value]));
+  } else if ((match = KeyConditionExpression.match(/^(\w+) = (:\w+) AND (\w+) BETWEEN (:\w+) AND (:\w+)$/))) {
+    const [, , pk, , lo, hi] = match;
+    items = [...table(TableName).values()].filter((item) => item[hashKey] === v[pk] && typeof item[sortKey] === 'string' && item[sortKey] >= v[lo] && item[sortKey] <= v[hi]);
   } else {
     throw new Error(`fake-dynamodb: unsupported KeyConditionExpression ${KeyConditionExpression}`);
   }

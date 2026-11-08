@@ -6817,3 +6817,488 @@ td .gr-bar {
     grid-template-columns: 90px 1fr;
   }
 }
+
+/* ------------------------------------------------------------ charts (charts.js) and Costs & analytics (finance.js) */
+
+/* Categorical slots in fixed order (validated on these surfaces: light #fff, dark #161925). */
+:root {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #008300;
+  --viz-muted: #a3a29b;
+  --viz-pos: #2a78d6;
+  --viz-neg: #e34948;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-good: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    --viz-1: #3987e5;
+    --viz-2: #d95926;
+    --viz-3: #199e70;
+    --viz-4: #c98500;
+    --viz-5: #d55181;
+    --viz-6: #008300;
+    --viz-muted: #6e6d68;
+    --viz-pos: #3987e5;
+    --viz-neg: #e66767;
+    --viz-grid: #2c2c2a;
+    --viz-axis: #383835;
+    --viz-good: #0ca30c;
+  }
+}
+:root[data-theme='dark'] {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #008300;
+  --viz-muted: #6e6d68;
+  --viz-pos: #3987e5;
+  --viz-neg: #e66767;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  --viz-good: #0ca30c;
+}
+
+.viz {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  min-width: 0;
+}
+.viz-head {
+  display: flex;
+  flex-direction: column;
+}
+.viz-head b {
+  font-size: 1.02rem;
+}
+.viz-head span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  list-style: none;
+}
+.viz-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.viz-key {
+  display: inline-block;
+  flex: none;
+  background: var(--c);
+}
+.viz-key.rect {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.viz-key.line {
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+}
+.viz-body {
+  position: relative;
+  height: 240px;
+  margin: 0 0 22px 44px;
+}
+.viz-grid,
+.viz-plot {
+  position: absolute;
+  inset: 0;
+}
+.viz-gl {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-top: 1px solid var(--viz-grid);
+}
+.viz-gl.zero {
+  border-color: var(--viz-axis);
+}
+.viz-gl em {
+  position: absolute;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.viz-x {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  height: 16px;
+}
+.viz-x span {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.viz-x span.minor {
+  display: none;
+}
+.viz-plot svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.viz-line {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.viz-line.dashed {
+  stroke-dasharray: 5 5;
+}
+.viz-area {
+  fill: var(--c);
+  opacity: 0.1;
+}
+.viz-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--c);
+  transform: translate(-50%, 50%);
+  box-sizing: content-box;
+}
+.viz-end {
+  position: absolute;
+  left: calc(100% + 8px);
+  transform: translateY(50%);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.viz-plot.line {
+  cursor: crosshair;
+}
+.viz-plot:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.viz-cross {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--viz-axis);
+  pointer-events: none;
+}
+.viz-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform: translateX(-50%);
+  cursor: default;
+}
+.viz-col:hover,
+.viz-col.is-hot,
+.viz-col:focus-visible {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  outline: none;
+}
+.viz-stack {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  width: min(24px, 64%);
+  transform: translateX(-50%);
+}
+.viz-stack.neg {
+  flex-direction: column;
+}
+.viz-seg {
+  display: block;
+  min-height: 1px;
+  background: var(--c);
+}
+.viz-stack:not(.neg) .viz-seg:last-child {
+  border-radius: 4px 4px 0 0;
+}
+.viz-stack.neg .viz-seg:last-child {
+  border-radius: 0 0 4px 4px;
+}
+.viz-tip {
+  position: absolute;
+  top: 6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+.viz-tip[hidden] {
+  display: none;
+}
+.viz-tip > b {
+  color: var(--muted);
+  font-weight: 600;
+}
+.viz-tip > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.viz-tip strong {
+  font-variant-numeric: tabular-nums;
+}
+.viz-tip small {
+  color: var(--muted);
+}
+.viz-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.viz-bars li {
+  display: grid;
+  grid-template-columns: minmax(90px, 34%) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 6px;
+}
+.viz-bars li:hover,
+.viz-bars li.is-hot,
+.viz-bars li:focus-visible {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  outline: none;
+}
+.viz-body:has(.viz-bars),
+.viz-body:has(.viz-segbar) {
+  height: auto;
+  margin: 0;
+}
+.viz-bar-name {
+  overflow: hidden;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.viz-flag {
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.viz-bar-track {
+  position: relative;
+  height: 16px;
+}
+.viz-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  min-width: 2px;
+  border-radius: 0 4px 4px 0;
+  background: var(--c);
+}
+.viz-target {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--text);
+}
+.viz-bar-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.viz-bar-val small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+.viz-segbar {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+}
+.viz-part {
+  display: flex;
+  align-items: center;
+  min-width: 2px;
+  padding-left: 6px;
+  border-radius: 4px;
+  background: var(--c);
+  color: var(--ink, #fff);
+  font-size: 0.75rem;
+  font-weight: 700;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.viz-part:hover,
+.viz-part.is-hot,
+.viz-part:focus-visible {
+  filter: brightness(1.12);
+  outline: none;
+}
+.viz-table summary {
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.viz-table table {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.fin-grid {
+  display: grid;
+  gap: 16px;
+}
+.fin-grid.two {
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+}
+.fin-grid.three {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.fin-grid > .panel,
+.hr-body > .panel {
+  margin: 0;
+  min-width: 0;
+}
+.fin .viz-body:not(:has(.viz-bars, .viz-segbar)) {
+  margin-right: 70px;
+}
+.fin-delta {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.fin-delta.good {
+  color: var(--viz-good);
+}
+.fin-delta.bad {
+  color: var(--danger);
+}
+.fin-neg {
+  color: var(--danger);
+}
+.fin-in {
+  color: var(--viz-good);
+}
+.fin-meter {
+  display: block;
+  height: 8px;
+  margin: 4px 0;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--viz-1) 18%, transparent);
+  overflow: hidden;
+}
+.fin-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--viz-1);
+}
+.fin-meter.warn i {
+  background: #fab219;
+}
+.fin-meter.over i {
+  background: #d03b3b;
+}
+.fin-h3 {
+  margin: 18px 0 8px;
+  font-size: 0.95rem;
+}
+.fin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fin-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.fin-filters {
+  margin-bottom: 16px;
+}
+.fin-settings td input:not([type='hidden']):not(.hr-cell),
+.fin-settings td select {
+  min-height: 34px;
+}
+.hr-dialog .segmented label {
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.hr-dialog .segmented label[aria-current] {
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+}
+@media (max-width: 640px) {
+  .fin-grid.two,
+  .fin-grid.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .viz-body {
+    height: 200px;
+    margin-left: 38px;
+  }
+  .viz-x span.mid {
+    display: none;
+  }
+  .fin .viz-body {
+    margin-right: 56px;
+  }
+}

@@ -19,6 +19,7 @@
 //   MKT#<ws> …, MKTC#<campaign> …   Lyrsoft Marketing: subscribers, campaigns, forms (marketing.mjs)
 //   HR#<ws> …, HRKEY#<hash>         Lyrsoft HR: employees, attendance, leave, payroll, devices (hr.mjs)
 //   GRO#<ws> …, GROWCH <ws>#<p>     Lyrsoft Ads & budget: platform connections, plans, budgets, spend (growth.mjs)
+//   FIN#<ws> …                      Lyrsoft Costs & analytics: entries, recurring costs, categories (finance.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -86,6 +87,7 @@ import { channelId, registerCollabRoutes } from './collab.mjs';
 import { registerContactRoutes } from './contacts.mjs';
 import { registerHrRoutes } from './hr.mjs';
 import { registerGrowthRoutes } from './growth.mjs';
+import { registerFinanceRoutes } from './finance.mjs';
 import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -874,6 +876,8 @@ const collab = registerCollabRoutes(route, {
 });
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
+
+registerFinanceRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId });
 
 const growth = registerGrowthRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, getAppSecret: () => getAppSecret() });
 

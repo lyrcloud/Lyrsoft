@@ -18,6 +18,7 @@
 //   CONTACTS#<sub> C#<id>          a contact in someone's address book (contacts.mjs)
 //   MKT#<ws> …, MKTC#<campaign> …   Lyrsoft Marketing: subscribers, campaigns, forms (marketing.mjs)
 //   HR#<ws> …, HRKEY#<hash>         Lyrsoft HR: employees, attendance, leave, payroll, devices (hr.mjs)
+//   GRO#<ws> …, GROWCH <ws>#<p>     Lyrsoft Ads & budget: platform connections, plans, budgets, spend (growth.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -84,6 +85,7 @@ import { createMailStore } from '../mail/store.mjs';
 import { channelId, registerCollabRoutes } from './collab.mjs';
 import { registerContactRoutes } from './contacts.mjs';
 import { registerHrRoutes } from './hr.mjs';
+import { registerGrowthRoutes } from './growth.mjs';
 import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -873,6 +875,8 @@ const collab = registerCollabRoutes(route, {
 
 registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, now, newId });
 
+const growth = registerGrowthRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, getAppSecret: () => getAppSecret() });
+
 const hr = registerHrRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, countUse: (key, period) => countUse(key, period) });
 
 // One marketing email through SES, tagged so bounce and complaint events can find the workspace.
@@ -1052,6 +1056,11 @@ function parseBody(event) {
 }
 
 export const handler = async (event) => {
+  if (event?.lyrsoftTask === 'marketing-tick') {
+    // The one-minute tick also refreshes connected ad platforms (Lyrsoft Ads & budget).
+    const [result] = await Promise.all([marketing.handleTask(event), growth.tick().catch((error) => console.error('growth tick', error))]);
+    return result;
+  }
   if (marketing.isTask(event)) return marketing.handleTask(event);
   const method = event.requestContext?.http?.method;
   const path = event.requestContext?.http?.path || '';

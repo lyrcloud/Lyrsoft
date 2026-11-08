@@ -51,6 +51,16 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Who can do what:** workspace owners and admins, plus the HR managers named in settings, see everything. Everyone else sees only their own record, matched by their sign-in email.
 - **Biometric devices:** register a device in HR settings to get its key, then the device (or a small bridge next to it) posts punches to `POST https://lyrsoft.com/public/hr/punch` with `{ "key": "lyrhr_…", "punches": [{ "user": "<ID on the device>", "at": "2026-11-08 09:02:41" }] }`. Times without an offset are read in the company's time zone; repeats within a minute are ignored, so resending is safe.
 
+## Ads and budget
+
+**Lyrsoft Ads & budget** (`/app/#/w/<workspace>/growth`, `lyrsoft/growth.js`, API in `api/work/growth.mjs`, platform calls in `api/work/growth-connectors.mjs`) brings a workspace's marketing platforms together:
+
+- **Channels:** connect Meta (Facebook, Instagram, Messenger ads, plus Page and Instagram followers), Google Ads (Search, Display and YouTube ads), TikTok Ads, a YouTube channel, WhatsApp Business (Cloud API: number health, templates, test send), a WeChat Official Account and a Telegram channel, each with the workspace's own API keys. Keys are sealed with AES-256-GCM under the app secret and only their last 4 characters are ever shown. Connected platforms sync the last 7 days every 6 hours (from the one-minute marketing tick) or 30 days when someone presses Sync. LinkedIn, X, Snapchat, Pinterest, Viber, imo, SMS, email, SEO, influencers, print/TV and events are tracked by hand.
+- **Budget:** a monthly budget per channel against actual spend, with remaining, % used and a month-end forecast that warns when a channel is heading over.
+- **Plan:** campaign plans with channels, dates, objective, budget, audience, owner and a target (impressions, clicks, results or reach), on a timeline; each plan follows the spend and results of matching campaigns.
+- **Overview:** budget, spend, forecast, impressions, clicks, CTR, CPC, results and cost per result; daily spend against the daily budget; followers across platforms; top campaigns.
+- **Who can do what:** workspace owners and admins connect platforms and set budgets; members plan campaigns, add spend by hand and sync.
+
 ## Marketing
 
 **Lyrsoft Marketing** (`/app/#/w/<workspace>/marketing`, `lyrsoft/marketing.js`, API in `api/work/marketing.mjs`) gives every workspace email marketing:

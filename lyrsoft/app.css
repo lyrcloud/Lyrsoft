@@ -6541,3 +6541,279 @@ button.hr-cal-day:hover {
     max-width: none;
   }
 }
+
+/* ------------------------------------------------------------ Ads & budget (growth.js) */
+
+.gr-month b {
+  min-width: 130px;
+  text-align: center;
+}
+.gr-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gr-dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+.gr-ch {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.gr-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+}
+.gr-bar {
+  display: block;
+  height: 8px;
+  margin: 6px 0 4px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.gr-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), #a25ddc);
+}
+.gr-bar.warn i {
+  background: linear-gradient(90deg, #fdab3d, #e2445c);
+}
+.gr-bar.ok i {
+  background: linear-gradient(90deg, #34d399, #00a65f);
+}
+.gr-bar.none i {
+  background: repeating-linear-gradient(45deg, var(--line) 0 6px, transparent 6px 12px);
+}
+td .gr-bar {
+  min-width: 90px;
+}
+.gr-channels,
+.gr-audience {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gr-audience li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 10px;
+}
+.gr-audience b {
+  font-size: 1.25rem;
+}
+.gr-audience small {
+  grid-column: 1 / -1;
+}
+.gr-chart svg {
+  display: block;
+  width: 100%;
+  height: 180px;
+}
+.gr-col {
+  fill: var(--brand);
+}
+.gr-col:hover {
+  fill: #a25ddc;
+}
+.gr-col.future {
+  fill: var(--surface-2);
+}
+.gr-budget-line {
+  stroke: #e2445c;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.gr-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.gr-plan-mini {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.gr-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 16px;
+}
+.gr-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.gr-plan h3,
+.gr-plan p {
+  margin: 0;
+}
+.gr-notes {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.gr-st-idea { --hr-c: #8a90a2; }
+.gr-st-planned { --hr-c: #579bfc; }
+.gr-st-live { --hr-c: #00a65f; }
+.gr-st-paused { --hr-c: #e08a00; }
+.gr-st-done { --hr-c: #a25ddc; }
+.gr-timeline {
+  --lab: 180px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gr-tl-months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-left: var(--lab);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.gr-tl-today {
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  width: 2px;
+  background: #e2445c;
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+.gr-tl-row {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gr-tl-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-tl-track {
+  position: relative;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.gr-tl-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--c) 75%, transparent);
+  overflow: hidden;
+}
+.gr-tl-bar.gr-st-idea,
+.gr-tl-bar.gr-st-planned {
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--c) 45%, transparent) 0 6px, color-mix(in srgb, var(--c) 25%, transparent) 6px 12px);
+}
+.gr-tl-bar .gr-dot {
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border: 1px solid #fff;
+}
+.gr-tl-row:hover .gr-tl-bar {
+  outline: 2px solid var(--brand);
+}
+.gr-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+.hr-dialog .gr-pick label.chip-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+.gr-quiet td {
+  opacity: 0.6;
+}
+.gr-platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.gr-platform {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.gr-platform.is-connected {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+.gr-platform.is-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+.gr-platform header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gr-platform header > div {
+  flex: 1;
+  min-width: 0;
+}
+.gr-platform h3,
+.gr-platform p {
+  margin: 0;
+}
+.gr-logo {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+.gr-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .gr-timeline {
+    --lab: 100px;
+  }
+  .gr-tl-row {
+    grid-template-columns: 90px 1fr;
+  }
+}

@@ -17,6 +17,31 @@ const text = (value, max) => String(value ?? '').replace(/[\u0000-\u001f\u007f]+
 const multiline = (value, max) => String(value ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
 const list = (value) => (Array.isArray(value) ? value : value == null || value === '' ? [] : [value]);
 
+// The "0" of each script's digits: Arabic-Indic, Persian/Urdu, Devanagari, Bangla, Gurmukhi, Gujarati,
+// Odia, Tamil, Telugu, Kannada, Malayalam, Thai, Lao, Tibetan, Myanmar, Khmer, full-width.
+const DIGIT_ZEROS = [0x30, 0x660, 0x6f0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xe50, 0xed0, 0xf20, 0x1040, 0x17e0, 0xff10];
+
+// Tidies a number as people really type or paste it: Bangla, Arabic and other native digits become
+// 0-9, the invisible direction marks WhatsApp adds when copying are removed, any dash or space
+// becomes a plain one, and words around it ("(WhatsApp)", "Mobile:") are dropped. "ext" / "x" for
+// an extension is kept.
+export function normalizePhone(value) {
+  let s = String(value ?? '')
+    .replace(/\p{Nd}/gu, (d) => {
+      const code = d.codePointAt(0);
+      const zero = DIGIT_ZEROS.find((z) => code >= z && code <= z + 9);
+      return zero === undefined ? d : String(code - zero);
+    })
+    .replace(/\p{Cf}/gu, '')
+    .replace(/^\s*tel:/i, '')
+    .replace(/[\p{Pd}−]/gu, '-')
+    .replace(/[\s  -   　]+/g, ' ')
+    .replace(/[＋]/g, '+')
+    .replace(/(?<=\d)\s*(?:ext\.?|extension|x)\s*(?=\d)/gi, ' x');
+  s = s.replace(/[^0-9+()\-. /#*,;]/g, (c, at) => (c === 'x' && s[at - 1] === ' ' && /\d/.test(s[at - 2] || '') && /\d/.test(s[at + 1] || '') ? 'x' : ' ')).replace(/\(\s*\)/g, '');
+  return s.replace(/\s+/g, ' ').replace(/^[\s\-.,;/]+|[\s\-.,;/(]+$/g, '').trim();
+}
+
 export const phoneKey = (phone) => {
   const digits = String(phone || '').replace(/\D/g, '');
   // The last 9 digits match "+880 1712-345678" with "01712345678" and "+1 (415) 555-0100" with "4155550100".
@@ -38,10 +63,11 @@ function cleanEntries(value, field, { strict }) {
       }
       if (!out.some((e) => e.value === email)) out.push({ value: email, label });
     } else if (field === 'phones') {
-      const phone = text(entry.value, 40).replace(/^tel:/i, '');
-      if (!phone) continue;
-      if (!/^[0-9+()\-. /#*,;wpx]+$/i.test(phone) || phone.replace(/\D/g, '').length < 3) {
-        if (strict) throw new ValidationError(`“${phone}” isn’t a phone number.`);
+      const typed = text(entry.value, 80);
+      if (!typed) continue;
+      const phone = normalizePhone(typed).slice(0, 40);
+      if (phone.replace(/\D/g, '').length < 3) {
+        if (strict) throw new ValidationError(`“${typed}” isn’t a phone number. Type it with digits, like +880 1712-345678 or 01712345678.`);
         continue;
       }
       if (!out.some((p) => p.value.replace(/\D/g, '') === phone.replace(/\D/g, ''))) out.push({ value: phone, label });

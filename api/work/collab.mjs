@@ -155,10 +155,11 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { conv, meta };
   }
 
-  // People the caller can message: everyone in their workspaces; staff can message every account.
+  // People the caller can message: everyone in their workspaces. Only the super admin sees every
+  // account; admins and everyone else see just the people they work with.
   async function contactsFor(me) {
     const people = new Map();
-    if (isStaff(me.globalRole)) {
+    if (me.globalRole === 'superadmin') {
       for (const p of await listProfiles()) if (p.email) people.set(p.email, { email: p.email, name: p.name || '' });
     }
     for (const m of await memberships(me.email)) {
@@ -467,7 +468,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
 
   const memberRow = (conv, email) => ({ PK: `CHAT#${conv}`, SK: `MEMBER#${email}`, GSI1PK: `CHATUSER#${email}`, GSI1SK: conv, conv, email });
 
-  // Emails the caller may put in a group: people they share a workspace with (anyone, for staff).
+  // Emails the caller may put in a group: people they share a workspace with (anyone, for the super admin).
   async function groupPeople(me, emails) {
     const contacts = new Map((await peopleFor(me)).map((c) => [c.email, c]));
     const list = tryClean(() => cleanInvitees(emails)).filter((e) => e !== me.email);

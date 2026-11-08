@@ -638,6 +638,7 @@ function newChatHtml() {
       <p><b>${esc(nf.to)}</b> isn’t on Lyr Chat yet${nf.phone ? ' (or hasn’t verified that number)' : ''}. Invite them:</p>
       <div class="lc-invite-buttons">
         ${nf.phone ? `<a class="btn" href="https://wa.me/${digits(nf.phone)}?text=${encodeURIComponent(INVITE_TEXT)}" target="_blank" rel="noopener">🟢 WhatsApp</a><a class="btn" href="sms:${esc(nf.phone.replace(/[^\d+]/g, ''))}?&body=${encodeURIComponent(INVITE_TEXT)}">💬 SMS</a>` : ''}
+        ${(S.book || []).some((c) => (nf.phone && c.phones.some((x) => sameNumber(x.value, nf.phone))) || (nf.email && c.emails.some((x) => x.value === nf.email.toLowerCase()))) ? '' : `<button class="btn" data-act="add-contact" data-phone="${esc(nf.phone || '')}" data-email="${esc(nf.email || '')}">＋ Save contact</button>`}
         ${nf.email ? `<a class="btn" href="mailto:${esc(nf.email)}?subject=${encodeURIComponent('Chat with me on Lyr Chat')}&body=${encodeURIComponent(INVITE_TEXT)}">✉ Email</a>` : ''}
         <button class="btn" data-act="share-invite">↗ Share link</button>
       </div>
@@ -676,7 +677,7 @@ function contactRow(c) {
 
 function contactsListHtml() {
   if (S.book === null) return '<p class="loading">Loading your contacts…</p>';
-  if (!S.book.length) return `<div class="lc-empty"><p>Your Lyrsoft Contacts are empty.</p><p class="lc-note">Import your phone’s or Google’s contacts there, and everyone who’s on Lyrsoft shows up here.</p><a class="btn primary" href="/app/#/contacts" target="_blank" rel="noopener">📇 Import contacts</a></div>`;
+  if (!S.book.length) return `<div class="lc-empty"><p>Your Lyrsoft Contacts are empty.</p><p class="lc-note">Import your phone’s or Google’s contacts there, and everyone who’s on Lyrsoft shows up here.</p><div class="lc-invite-buttons"><button class="btn primary" data-act="add-contact">＋ New contact</button><a class="btn" href="/app/#/contacts" target="_blank" rel="noopener">📇 Import contacts</a></div></div>`;
   const q = S.contactQuery.trim().toLowerCase();
   const on = onLyrChat().filter((c) => contactMatches(c, q));
   const rest = S.book.filter(reachableContact).filter((c) => contactMatches(c, q));
@@ -690,7 +691,7 @@ function contactsListHtml() {
 }
 
 function contactsHtml() {
-  return `${sideHead('Contacts', '<a class="lc-icon" href="/app/#/contacts" target="_blank" rel="noopener" title="Add or import contacts" aria-label="Add or import contacts">＋</a>')}
+  return `${sideHead('Contacts', '<a class="lc-icon" href="/app/#/contacts" target="_blank" rel="noopener" title="Import contacts" aria-label="Import contacts">📇</a><button class="lc-icon" data-act="add-contact" title="New contact" aria-label="New contact">＋</button>')}
     <div class="lc-search"><input type="search" placeholder="Search contacts" value="${esc(S.contactQuery)}" data-input="contact-search" aria-label="Search contacts" /></div>
     <p class="lc-note">From your Lyrsoft Contacts. People who are on Lyrsoft (by email, or by a mobile number they verified) appear automatically.</p>
     <div class="lc-list lc-contacts">${contactsListHtml()}</div>`;
@@ -737,6 +738,66 @@ function inviteDialog(c) {
   node.addEventListener('close', () => node.remove());
   node.addEventListener('click', (e) => e.target.closest('a') && setTimeout(() => node.close(), 100));
   node.showModal();
+}
+
+// Saving someone straight from Lyr Chat: a name and a mobile number (an email is optional). The number
+// can be typed any way (Bangla digits, spaces, dashes, pasted from WhatsApp); the API tidies it.
+const DIGIT_ZEROS = [0x660, 0x6f0, 0x966, 0x9e6, 0xff10]; // Arabic-Indic, Persian, Devanagari, Bangla, full-width
+const asciiDigits = (v) => String(v || '').replace(/[٠-٩۰-۹०-९০-৯０-９]/g, (d) => {
+  const code = d.charCodeAt(0);
+  return String(code - DIGIT_ZEROS.find((z) => code >= z && code <= z + 9));
+});
+const sameNumber = (a, b) => {
+  const x = digits(asciiDigits(a)).slice(-9);
+  return x.length >= 6 && x === digits(asciiDigits(b)).slice(-9);
+};
+
+function addContactDialog({ name = '', phone = '', email = '' } = {}) {
+  const node = document.createElement('dialog');
+  node.className = 'dialog lc-dialog';
+  node.innerHTML = `<form class="lc-add-contact"><h2>New contact</h2>
+    <label>Name<input name="name" maxlength="200" autocomplete="off" value="${esc(name)}" placeholder="Their name" /></label>
+    <label>Mobile number<input name="phone" type="tel" inputmode="tel" autocomplete="off" value="${esc(phone)}" placeholder="01712-345678 or +880 1712-345678" /></label>
+    <label>Email <small class="muted">(optional)</small><input name="email" type="text" inputmode="email" autocomplete="off" value="${esc(email)}" placeholder="name@example.com" /></label>
+    <p class="lc-form-error" role="alert" hidden></p>
+    <p class="lc-note">Saved to your own Lyrsoft Contacts. Only you can see them.</p>
+    <div class="row end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form>`;
+  document.body.append(node);
+  const form = node.querySelector('form');
+  const error = node.querySelector('.lc-form-error');
+  const fail = (message) => {
+    error.textContent = message;
+    error.hidden = false;
+  };
+  node.addEventListener('close', () => node.remove());
+  node.querySelector('[data-close]').addEventListener('click', () => node.close());
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    error.hidden = true;
+    const data = new FormData(form);
+    const n = String(data.get('name')).trim();
+    const p = String(data.get('phone')).trim();
+    const e = String(data.get('email')).trim();
+    if (!n && !p && !e) return fail('Type a name and a mobile number.');
+    if (p && digits(asciiDigits(p)).length < 3) return fail('Type the mobile number with digits, like 01712-345678.');
+    const already = p && (S.book || []).find((c) => c.phones.some((x) => sameNumber(x.value, p)));
+    if (already) return fail(`${already.name} already has this number in your contacts.`);
+    const button = form.querySelector('button.primary');
+    button.disabled = true;
+    try {
+      const { contact } = await api('POST', '/contacts', { contact: { name: n, phones: p ? [{ value: p, label: 'mobile' }] : [], emails: e ? [{ value: e, label: '' }] : [] } });
+      node.close();
+      toast(`Saved ${contact.name}`);
+      S.book = [...(S.book || []), contact].sort((a, b) => a.name.localeCompare(b.name));
+      if (S.route.view === 'contacts') renderSide();
+      loadBook(true);
+    } catch (err) {
+      fail(err.message);
+      button.disabled = false;
+    }
+  });
+  node.showModal();
+  setTimeout(() => form.querySelector(name ? 'input[name="phone"]' : 'input[name="name"]').focus());
 }
 
 function newGroupHtml() {
@@ -1006,6 +1067,7 @@ const actions = {
       toast(error.message);
     }
   },
+  'add-contact': (t) => addContactDialog({ phone: t.dataset.phone || '', email: t.dataset.email || '' }),
   'invite-contact': (t) => {
     const c = S.book?.find((x) => x.id === t.dataset.id);
     if (c) inviteDialog(c);

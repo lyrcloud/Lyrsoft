@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanContact, findDuplicates, mergeContact, phoneKey, planImport } from './contacts-model.mjs';
+import { cleanContact, findDuplicates, mergeContact, normalizePhone, phoneKey, planImport } from './contacts-model.mjs';
 import {
   fixMojibake,
   fromDeviceContact,
@@ -205,4 +205,18 @@ test('duplicates are found and merged without losing anything', () => {
   assert.equal(contact.favorite, true);
   assert.equal(contact.phones.length, 1);
   assert.equal(contact.notes, 'one\n\ntwo');
+});
+
+test('mobile numbers save however they are typed or pasted', () => {
+  assert.equal(normalizePhone('০১৭১২-৩৪৫৬৭৮'), '01712-345678', 'Bangla digits');
+  assert.equal(normalizePhone('٠١٧١٢٣٤٥٦٧٨'), '01712345678', 'Arabic-Indic digits');
+  assert.equal(normalizePhone('‪+880 1712‑345678‬'), '+880 1712-345678', 'copied from WhatsApp');
+  assert.equal(normalizePhone('+880 1712–345678'), '+880 1712-345678', 'en dash');
+  assert.equal(normalizePhone('Mobile: 01712345678 (WhatsApp)'), '01712345678');
+  assert.equal(normalizePhone('+1 415 555 0100 ext. 22'), '+1 415 555 0100 x22');
+  assert.equal(normalizePhone('Alex 0171'), '0171');
+  const c = cleanContact({ name: 'Rafi', phones: [{ value: '০১৭১২৩৪৫৬৭৮' }] }, { strict: true });
+  assert.deepEqual(c.phones, [{ value: '01712345678', label: '' }]);
+  assert.equal(phoneKey(c.phones[0].value), phoneKey('+880 1712-345678'));
+  assert.throws(() => cleanContact({ name: 'R', phones: ['call me'] }, { strict: true }), /isn’t a phone number/);
 });

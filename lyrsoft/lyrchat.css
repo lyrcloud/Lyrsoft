@@ -697,6 +697,51 @@ body.lyrchat {
   padding: 16px;
 }
 
+.lc-add-contact {
+  display: grid;
+  gap: 12px;
+  width: min(360px, calc(100vw - 48px));
+}
+
+.lc-add-contact h2 {
+  margin: 0;
+}
+
+.lc-add-contact label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.lc-add-contact input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+  font-size: 16px; /* 16px keeps iPhone from zooming in */
+}
+
+.lc-add-contact .lc-note {
+  margin: 0;
+}
+
+.lc-form-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+  color: #e5484d;
+}
+
+.lc-form-error[hidden] {
+  display: none;
+}
+
 .lc-ring[hidden],
 .lc-calling[hidden],
 .lc-banner[hidden] {

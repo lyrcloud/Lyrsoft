@@ -90,9 +90,10 @@ export const canUseMailbox = (me, mailbox, linked = null) =>
 // The super admin links workspaces to a mail domain (Lyrtrip's workspace to lyrtrip.com). Everyone in a
 // linked workspace, including people who join later, can use that domain's shared inbox.
 
-// The shared inbox of a domain: support@<domain>, else the domain's catch-all mailbox, else none.
+// The shared inbox of a domain: support@<domain>, else its catch-all, else its only mailbox (hello@…), else none.
 export function sharedMailbox(domain, mailboxes) {
-  return mailboxes.find((m) => m.address === `support@${domain}`) || mailboxes.find((m) => m.catchAll && m.address.split('@')[1] === domain) || null;
+  const onDomain = mailboxes.filter((m) => m.address.split('@')[1] === domain);
+  return onDomain.find((m) => m.address === `support@${domain}`) || onDomain.find((m) => m.catchAll) || (onDomain.length === 1 ? onDomain[0] : null);
 }
 
 // { domain: [wsId, …] } with only real domains and well-formed workspace ids.

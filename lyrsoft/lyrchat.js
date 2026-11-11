@@ -557,6 +557,7 @@ const tabs = () => {
   const v = S.route.view;
   const tab = (hash, icon, label, on, badge = '') => `<a class="lc-tab${on ? ' on' : ''}" href="${hash}"><span aria-hidden="true">${icon}</span>${label}${badge}</a>`;
   return `<nav class="lc-tabs">
+    ${S.me?.mailboxCount ? `<a class="lc-tab" href="/app/#/mail" title="Your team’s mailboxes in Lyrsoft Mail"><span aria-hidden="true">✉️</span>Mail</a>` : ''}
     ${tab('#/', '💬', 'Chats', ['chats', 'chat', 'requests', 'new', 'group'].includes(v), unread ? `<b class="lc-badge">${unread}</b>` : '')}
     ${tab('#/contacts', '👤', 'Contacts', v === 'contacts', S.matches.size ? `<b class="lc-badge soft">${S.matches.size}</b>` : '')}
     ${tab('#/calls', '📞', 'Calls', v === 'calls')}

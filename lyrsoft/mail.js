@@ -91,7 +91,8 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
       : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
   const person = (p) => (p?.name ? `${esc(p.name)} <span class="muted">&lt;${esc(p.address)}&gt;</span>` : esc(p?.address || ''));
-  const hasMail = () => Boolean(getMe()?.mailboxCount || getMe()?.globalRole === 'superadmin');
+  // Mail sits above Messages for everyone signed in; people without an inbox yet see how to get one.
+  const hasMail = () => Boolean(getMe());
 
   async function loadBoxes(force = false) {
     if (!mail.boxes || force) mail.boxes = await api('GET', '/mail/mailboxes');
@@ -148,7 +149,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     return `
       <nav aria-label="Mail">
         <p class="nav-label">Mail</p>
-        <a href="#/mail${first ? `/${encodeURIComponent(first.address)}` : '/settings'}"${route.view.startsWith('mail') ? ' aria-current="page"' : ''}>
+        <a href="#/mail${first ? `/${encodeURIComponent(first.address)}` : mail.boxes?.canManage ? '/settings' : ''}"${route.view.startsWith('mail') ? ' aria-current="page"' : ''}>
           <span class="nav-icon" aria-hidden="true">✉</span><span class="nav-text">Mailboxes</span>${unread ? `<span class="count">${unread}</span>` : ''}</a>
       </nav>`;
   }
@@ -444,7 +445,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     return `
       <section class="panel empty">
         <h2>No mailboxes yet</h2>
-        <p>${mail.boxes?.canManage ? 'Create support@ and other shared addresses for your domains.' : 'Ask the super admin to link your workspace to its mail domain, or to add you to a mailbox.'}</p>
+        <p>${mail.boxes?.canManage ? 'Create support@ and other shared addresses for your domains.' : 'Your team’s inbox (like support@lyrtrip.com) appears here once your workspace is linked to its site’s mail domain. Ask the super admin (support@lyrsoft.com) to link it or add you to a mailbox.'}</p>
         ${mail.boxes?.canManage ? '<a class="btn primary" href="#/mail/settings">Set up mailboxes</a>' : ''}
       </section>`;
   }

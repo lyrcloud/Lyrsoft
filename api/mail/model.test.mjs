@@ -138,6 +138,8 @@ test('workspaces linked to a domain share its support inbox', async () => {
   assert.equal(sharedMailbox('lyrtrip.com', boxes).address, 'support@lyrtrip.com');
   assert.equal(sharedMailbox('lyrshop.com', boxes).address, 'all@lyrshop.com', 'no support@, so the catch-all');
   assert.equal(sharedMailbox('lyrpay.com', boxes), null);
+  assert.equal(sharedMailbox('mrshihab.com', [{ address: 'hello@mrshihab.com' }]).address, 'hello@mrshihab.com', 'a domain’s only mailbox');
+  assert.equal(sharedMailbox('x.com', [{ address: 'a@x.com' }, { address: 'b@x.com' }]), null, 'ambiguous without support@');
   const links = cleanMailLinks({ 'lyrtrip.com': ['ws1', 'ws1', 'bad id!'], 'evil.com': ['ws2'] }, ['lyrtrip.com', 'lyrshop.com']);
   assert.deepEqual(links, { 'lyrtrip.com': ['ws1'] });
   const linked = linkedAddresses(links, ['ws1'], boxes);

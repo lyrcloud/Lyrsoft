@@ -1,0 +1,9 @@
+# lyrsoft.com: the company site and Lyr Chat are public; the app, sign-in and API are not.
+User-agent: *
+Allow: /
+Disallow: /app/
+Disallow: /api/
+Disallow: /public/
+Disallow: /callback.html
+
+Sitemap: https://lyrsoft.com/sitemap.xml

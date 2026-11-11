@@ -140,6 +140,8 @@ aws s3 sync dist-lyrsoft/brand/ "s3://$BUCKET/brand/" --cache-control "public,ma
 aws s3 cp dist-lyrsoft/favicon.ico "s3://$BUCKET/favicon.ico" --cache-control "public,max-age=86400" --content-type "image/x-icon"
 aws s3 sync dist-lyrsoft/ "s3://$BUCKET/" --exclude "*" --include "*.html" \
   --cache-control "public,max-age=0,must-revalidate" --content-type "text/html; charset=utf-8"
+aws s3 cp dist-lyrsoft/robots.txt "s3://$BUCKET/robots.txt" --cache-control "public,max-age=3600" --content-type "text/plain; charset=utf-8"
+aws s3 cp dist-lyrsoft/sitemap.xml "s3://$BUCKET/sitemap.xml" --cache-control "public,max-age=3600" --content-type "application/xml; charset=utf-8"
 aws s3 cp dist-lyrsoft/lyrchat-widget.js "s3://$BUCKET/lyrchat-widget.js" --cache-control "public,max-age=3600" --content-type "text/javascript; charset=utf-8"
 aws s3 cp dist-lyrsoft/chat/sw.js "s3://$BUCKET/chat/sw.js" --cache-control "public,max-age=0,must-revalidate" --content-type "text/javascript; charset=utf-8"
 aws s3 cp dist-lyrsoft/brand/lyrchat.webmanifest "s3://$BUCKET/brand/lyrchat.webmanifest" --cache-control "public,max-age=3600" --content-type "application/manifest+json"

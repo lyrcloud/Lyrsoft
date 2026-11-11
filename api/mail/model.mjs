@@ -80,9 +80,55 @@ export function cleanEmailList(value, { max = 50, label = 'address' } = {}) {
   return [...new Set(list)];
 }
 
-// Staff (super admin and Lyrcloud admins) can open every mailbox; others need to be listed on it.
+// Staff (super admin and Lyrcloud admins) can open every mailbox; others need to be listed on it, or
+// belong to a workspace linked to the mailbox's domain (`linked`: addresses from linkedAddresses).
 export const isMailStaff = (globalRole) => globalRole === 'superadmin' || globalRole === 'admin';
-export const canUseMailbox = (me, mailbox) => isMailStaff(me.globalRole) || (mailbox.members || []).includes(me.email);
+export const canUseMailbox = (me, mailbox, linked = null) =>
+  isMailStaff(me.globalRole) || (mailbox.members || []).includes(me.email) || Boolean(linked?.has(mailbox.address));
+
+// ------------------------------------------------------------------ workspaces linked to a domain
+// The super admin links workspaces to a mail domain (Lyrtrip's workspace to lyrtrip.com). Everyone in a
+// linked workspace, including people who join later, can use that domain's shared inbox.
+
+// The shared inbox of a domain: support@<domain>, else the domain's catch-all mailbox, else none.
+export function sharedMailbox(domain, mailboxes) {
+  return mailboxes.find((m) => m.address === `support@${domain}`) || mailboxes.find((m) => m.catchAll && m.address.split('@')[1] === domain) || null;
+}
+
+// { domain: [wsId, …] } with only real domains and well-formed workspace ids.
+export function cleanMailLinks(input, domains) {
+  const out = {};
+  for (const [domain, ids] of Object.entries(input && typeof input === 'object' ? input : {})) {
+    if (!domains.includes(domain)) continue;
+    const list = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((id) => /^[\w-]{1,64}$/.test(id)))].slice(0, 50);
+    if (list.length) out[domain] = list;
+  }
+  return out;
+}
+
+// Addresses of the shared inboxes my workspaces are linked to.
+export function linkedAddresses(links, wsIds, mailboxes) {
+  const mine = new Set(wsIds);
+  const out = new Set();
+  for (const [domain, ids] of Object.entries(links || {})) {
+    if (!ids.some((id) => mine.has(id))) continue;
+    const box = sharedMailbox(domain, mailboxes);
+    if (box) out.add(box.address);
+  }
+  return out;
+}
+
+// Workspaces whose name matches a domain ("Lyrtrip" ~ lyrtrip.com), offered as links to the super admin.
+export function suggestMailLinks(workspaces, domains) {
+  const key = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const out = {};
+  for (const domain of domains) {
+    const label = key(domain.split('.')[0]);
+    const ids = workspaces.filter((w) => key(w.name) === label || key(w.name).startsWith(label)).map((w) => w.id);
+    if (ids.length) out[domain] = ids;
+  }
+  return out;
+}
 export const canManageMailboxes = (me) => me.globalRole === 'superadmin';
 
 // Picks the mailboxes an incoming recipient lands in: an exact address match, else the

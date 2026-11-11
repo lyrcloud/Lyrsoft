@@ -8,6 +8,7 @@
 //   BOARD#<b>   ITEM#<item>        item
 //   ITEM#<i>    UPDATE#<iso>#<id>  item update (comment)
 //   CONFIG      LEADS              where website enquiries go: { wsId, boardId }
+//   CONFIG      MAILLINKS          workspaces linked to each mail domain: { links: { domain: [wsId] } }
 //   RATE#contact#<ip>  <hour>      contact form submissions per IP per hour (expires via TTL)
 //   RATE#lyrbot#<ip>   <hour>      Lyrbot questions per IP per hour (expires via TTL)
 //   RATE#lyrbot#all    <day>       Lyrbot questions for the whole site per day (expires via TTL)
@@ -21,6 +22,7 @@
 //   GRO#<ws> …, GROWCH <ws>#<p>     Lyrsoft Ads & budget: platform connections, plans, budgets, spend (growth.mjs)
 //   FIN#<ws> …                      Lyrsoft Costs & analytics: entries, recurring costs, categories (finance.mjs)
 //   OPS#<ws> …, OPSMON <ws>#<id>    Lyrsoft Performance & maintenance: monitors, checks, incidents, tasks (ops.mjs)
+//   SEO#<ws> …                      Lyrsoft SEO: sites, audits, settings (seo.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
 // only trusted from Google sign-ins and from email-and-password accounts that confirmed theirs
@@ -49,6 +51,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ChimeSDKMeetingsClient } from '@aws-sdk/client-chime-sdk-meetings';
@@ -59,7 +62,7 @@ import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
 import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import { emailTrusted, isStaff, providerFromUsername, roleFor, userUpdateError } from '../account/roles.mjs';
-import { buildRawEmail, canUseMailbox, mailDomains } from '../mail/model.mjs';
+import { buildRawEmail, canUseMailbox, cleanMailLinks, isMailStaff, linkedAddresses, mailDomains } from '../mail/model.mjs';
 import {
   adminProfile,
   checkCode,
@@ -90,6 +93,7 @@ import { registerHrRoutes } from './hr.mjs';
 import { registerGrowthRoutes } from './growth.mjs';
 import { registerFinanceRoutes } from './finance.mjs';
 import { registerOpsRoutes } from './ops.mjs';
+import { registerSeoRoutes } from './seo.mjs';
 import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -173,6 +177,19 @@ async function queryAll(params) {
   return items;
 }
 
+// Reads the whole table (filtered) for rare super-admin overviews, for up to `budgetMs`.
+async function scanAll(params, budgetMs = 15_000) {
+  const items = [];
+  const stop = Date.now() + budgetMs;
+  let ExclusiveStartKey;
+  do {
+    const page = await ddb.send(new ScanCommand({ TableName: TABLE, ...params, ExclusiveStartKey }));
+    items.push(...(page.Items || []));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey && Date.now() < stop);
+  return { items, complete: !ExclusiveStartKey };
+}
+
 const queryPrefix = (PK, prefix) =>
   queryAll({
     KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
@@ -195,6 +212,11 @@ async function putMany(items) {
       RequestItems = (await ddb.send(new BatchWriteCommand({ RequestItems }))).UnprocessedItems;
     }
   }
+}
+
+// Workspaces linked to mail domains (Lyrsoft Mail, api/mail/routes.mjs): their members share the domain's inbox.
+async function readMailLinks() {
+  return (await get('CONFIG', 'MAILLINKS'))?.links || {};
 }
 
 async function deleteBoardData(boardId) {
@@ -362,7 +384,9 @@ route('GET', '/me', async (me) => {
     workspaces = all.map((ws) => mine.get(ws.wsId) || { ...workspaceOut(ws, effectiveRole(me.globalRole, null)), staffAccess: true });
   }
   workspaces.sort((a, b) => a.name.localeCompare(b.name));
-  const mailboxCount = (await mailStore.listMailboxes()).filter((m) => canUseMailbox(me, m)).length;
+  const allBoxes = await mailStore.listMailboxes();
+  const linked = isMailStaff(me.globalRole) ? null : linkedAddresses(cleanMailLinks(await readMailLinks(), mailDomains()), memberships.map((m) => m.wsId), allBoxes);
+  const mailboxCount = allBoxes.filter((m) => canUseMailbox(me, m, linked)).length;
   const profile = await touchProfile(me);
   return { email: me.email, name: me.name, globalRole: me.globalRole, workspaces, mailboxCount, profile: selfProfile(profile, me.globalRole) };
 });
@@ -833,7 +857,16 @@ route('POST', '/workspaces/{ws}/boards/{board}/items/{item}/updates', async (me,
   return [201, { update: updateOut(update) }];
 });
 
-registerMailRoutes(route, { store: mailStore, s3, ses, bucket: MAIL_BUCKET, HttpError });
+registerMailRoutes(route, {
+  store: mailStore,
+  s3,
+  ses,
+  bucket: MAIL_BUCKET,
+  HttpError,
+  links: { read: readMailLinks, write: (links) => put({ PK: 'CONFIG', SK: 'MAILLINKS', links, updatedAt: now() }) },
+  workspaceIdsOf: async (email) => (await queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': `USER#${email}` } })).map((m) => m.wsId),
+  allWorkspaces: async () => (await queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': 'WORKSPACE' } })).map((w) => ({ id: w.wsId, name: w.name })),
+});
 
 // The Lyr Chat phone apps' push goes through Firebase Cloud Messaging with a Google service account kept
 // in the FCM_SECRET secret (lyrsoft/fcm). Until that secret exists, phones only ring while the app is open.
@@ -855,7 +888,7 @@ async function getFcmAccount() {
 }
 const push = createPush({ db: { put, del, queryAll }, getSecret: () => getAppSecret(), now, getFcmAccount });
 const collab = registerCollabRoutes(route, {
-  db: { get, put, del, queryAll },
+  db: { get, put, del, queryAll, scanAll },
   HttpError,
   openWorkspace,
   isStaff,
@@ -882,6 +915,8 @@ registerContactRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKey
 registerFinanceRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId });
 
 const ops = registerOpsRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, sendEmail: MAIL_FROM ? (to, email) => sendAccountEmail(to, email) : null, siteUrl: SITE_URL });
+
+registerSeoRoutes(route, { db: { get, put, del, queryAll }, HttpError, openWorkspace, now, newId, countUse: (key, period) => countUse(key, period) });
 
 const growth = registerGrowthRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, getAppSecret: () => getAppSecret() });
 

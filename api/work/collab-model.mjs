@@ -160,3 +160,16 @@ export function profileForPhone(profiles, input) {
 // A secret for a meeting's guest link: anyone who opens it and signs in joins the meeting.
 export const newGuestKey = () => randomBytes(12).toString('base64url');
 export const GUEST_KEY_RE = /^[A-Za-z0-9_-]{16}$/;
+
+// ------------------------------------------------------------------ who may delete what
+// Everyone edits and unsends their own messages and leaves groups. Admins may also delete the groups
+// they made (meeting groups included), the meetings they host and their own call history. The super
+// admin may edit or delete any message, and delete any conversation, meeting or call, for everyone.
+export const isSuperAdmin = (role) => role === 'superadmin';
+const isText = (m) => (m.kind || 'text') === 'text';
+export const canEditMessage = (m, email, role) => !m.deletedAt && isText(m) && (m.authorEmail === email || isSuperAdmin(role));
+export const canDeleteMessage = (m, email, role) => !m.deletedAt && (isSuperAdmin(role) || (m.authorEmail === email && isText(m)));
+export const canDeleteConversation = (meta, email, role) =>
+  isSuperAdmin(role) || (role === 'admin' && meta?.type === 'group' && meta.createdBy === email);
+export const canDeleteMeeting = (meeting, email, role) => isSuperAdmin(role) || (role === 'admin' && meeting?.hostEmail === email);
+export const canClearCallHistory = (role) => isSuperAdmin(role) || role === 'admin';

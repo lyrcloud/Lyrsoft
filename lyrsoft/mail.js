@@ -102,6 +102,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
   async function load(route) {
     if (!hasMail() && route.view !== 'mailSettings') return;
     await loadBoxes();
+    if (route.view === 'mailSettings' && mail.boxes.canManage && !mail.links) mail.links = await api('GET', '/mail/links');
     if (route.view !== 'mail') return;
     if (!route.mailbox) {
       const first = mail.boxes.mailboxes[0];
@@ -443,7 +444,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
     return `
       <section class="panel empty">
         <h2>No mailboxes yet</h2>
-        <p>${mail.boxes?.canManage ? 'Create support@ and other shared addresses for your domains.' : 'Ask the super admin to add you to a mailbox.'}</p>
+        <p>${mail.boxes?.canManage ? 'Create support@ and other shared addresses for your domains.' : 'Ask the super admin to link your workspace to its mail domain, or to add you to a mailbox.'}</p>
         ${mail.boxes?.canManage ? '<a class="btn primary" href="#/mail/settings">Set up mailboxes</a>' : ''}
       </section>`;
   }
@@ -475,6 +476,7 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
         </table></div>
         <p class="muted small">Receiving needs an MX record on each domain: <code>10 inbound-smtp.us-east-1.amazonaws.com</code>. <code>scripts/deploy-lyrsoft.sh</code> prints every DNS record to add in Cloudflare.</p>
       </section>
+      ${linksSection()}
       <section class="panel">
         <div class="panel-head"><h2>Mailboxes</h2><span class="muted">${mailboxes.length}</span></div>
         <form class="mailbox-form" data-form="mail-create">
@@ -500,6 +502,44 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
             .join('')}</tbody>
         </table></div>
       </section>`;
+  }
+
+  // Workspaces linked to each domain: everyone in them (now and later) uses the domain's support@ inbox.
+  function linksSection() {
+    const l = mail.links;
+    if (!l) return '';
+    const name = (id) => l.workspaces.find((w) => w.id === id)?.name || 'Removed workspace';
+    return `
+      <section class="panel mail-links">
+        <div class="panel-head"><h2>Workspaces and their inbox</h2></div>
+        <p class="muted small">Link a site’s workspace to its domain and everyone in that workspace, including people who join later, gets the domain’s inbox under Mail: Lyrtrip’s team gets support@lyrtrip.com. Linking a domain with no mailbox creates support@ for it.</p>
+        <div class="table-scroll"><table class="list-table">
+          <thead><tr><th>Domain</th><th>Inbox</th><th>Linked workspaces</th><th></th></tr></thead>
+          <tbody>${mail.boxes.domains.map((d) => {
+            const linked = l.links[d] || [];
+            const suggested = (l.suggestions[d] || []).filter((id) => !linked.includes(id));
+            return `<tr>
+              <td><b>${esc(d)}</b></td>
+              <td>${l.inbox[d] ? esc(l.inbox[d]) : '<span class="muted">support@ (made when linked)</span>'}</td>
+              <td>${linked.length ? linked.map((id) => `<span class="pill">${esc(name(id))}</span>`).join(' ') : '<span class="muted">None</span>'}
+                ${suggested.length ? `<br><button class="btn small ghost" data-click="mail-link-suggested" data-domain="${esc(d)}">＋ Link ${esc(suggested.map(name).join(', '))}</button>` : ''}</td>
+              <td class="right"><button class="btn small" data-click="mail-links-edit" data-domain="${esc(d)}">Choose…</button></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>
+      </section>`;
+  }
+
+  async function saveLinks(domain, ids) {
+    try {
+      const out = await api('PUT', `/mail/links/${encodeURIComponent(domain)}`, { workspaces: ids });
+      mail.links = await api('GET', '/mail/links');
+      await loadBoxes(true);
+      render();
+      toast(out.created ? `Linked. ${out.inbox} was created.` : ids.length ? `Linked to ${out.inbox}` : 'Unlinked');
+    } catch (error) {
+      toast(error.message);
+    }
   }
 
   // ------------------------------------------------------------------ forms in dialogs
@@ -668,6 +708,18 @@ export function createMail({ api, esc, toast, render, go, withParams, initial, f
       } catch (error) {
         toast(error.message);
       }
+    },
+    'mail-link-suggested': (target) => {
+      const d = target.dataset.domain;
+      saveLinks(d, [...new Set([...(mail.links.links[d] || []), ...(mail.links.suggestions[d] || [])])]);
+    },
+    'mail-links-edit': async (target) => {
+      const d = target.dataset.domain;
+      const linked = new Set(mail.links.links[d] || []);
+      const values = await formDialog(`Workspaces for ${d}`, `
+        <p class="muted">Everyone in the ticked workspaces can use ${esc(mail.links.inbox[d] || `support@${d}`)}.</p>
+        <div class="check-list">${mail.links.workspaces.map((w) => `<label class="check"><input type="checkbox" name="${esc(w.id)}"${linked.has(w.id) ? ' checked' : ''} /> ${esc(w.name)}</label>`).join('') || '<p class="muted">No workspaces yet.</p>'}</div>`, 'Save');
+      if (values) saveLinks(d, values._checked);
     },
     'mail-delete-box': async (target) => {
       const address = target.dataset.address;

@@ -812,7 +812,9 @@ function newGroupHtml() {
 
 function callsHtml() {
   const rows = S.calls;
-  return `${sideHead('Calls')}
+  const role = S.me?.globalRole;
+  const admin = role === 'admin' || role === 'superadmin';
+  return `${sideHead('Calls', admin && rows?.length ? '<button class="btn small ghost" data-act="calls-clear" title="Clear your call history">Clear</button>' : '')}
     <div class="lc-list">${rows === null ? '<p class="loading">Loading…</p>' : rows.map((c) => {
       const arrow = c.direction === 'outgoing' ? '↗' : '↙';
       const what = c.missed ? 'Missed' : c.declined ? 'Declined' : c.direction === 'outgoing' ? 'Outgoing' : 'Incoming';
@@ -821,6 +823,8 @@ function callsHtml() {
         <span class="lc-row-main"><b>${esc(c.title)}</b><small>${arrow} ${what} ${c.video ? 'video' : 'voice'} · ${esc(timeOf(c.startedAt))}${c.durationSec ? ` · ${durationText(c.durationSec)}` : ''}</small></span></a>
         <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="0" aria-label="Voice call">📞</button>
         <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="1" aria-label="Video call">📹</button>
+        ${admin ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" aria-label="Remove from call history" title="Remove from my history">🗑</button>` : ''}
+        ${role === 'superadmin' ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" data-everyone="1" aria-label="Delete for everyone" title="Delete for everyone">⛔</button>` : ''}
       </div>`;
     }).join('') || '<div class="lc-empty"><p>No calls yet. Open a chat and tap 📞 or 📹.</p></div>'}</div>`;
 }
@@ -866,6 +870,7 @@ function convInfo(id) {
     label: conversation?.label || '',
     canCall: conversation ? conversation.canCall : ['dm', 'group'].includes(type) && (listed?.request || 'none') === 'none',
     members: conversation?.members?.length || listed?.memberCount || 0,
+    canDelete: Boolean(conversation?.canDelete ?? listed?.canDelete),
   };
 }
 
@@ -881,6 +886,7 @@ function convHeadHtml(id) {
     ? `<div class="lc-menu" role="menu">
         ${c.type === 'dm' ? `${c.blocked ? `<button data-act="unblock" data-conv="${esc(id)}">✅ Unblock</button>` : `<button data-act="block" data-conv="${esc(id)}">🚫 Block</button>`}<button data-act="report" data-conv="${esc(id)}">⚠️ Report and block</button>` : ''}
         ${c.type === 'group' ? `<button data-act="group-add" data-conv="${esc(id)}">➕ Add people</button><button data-act="group-rename" data-conv="${esc(id)}">✎ Rename</button><button data-act="group-leave" data-conv="${esc(id)}">🚪 Leave group</button>` : ''}
+        ${c.canDelete ? `<button class="danger" data-act="conv-delete" data-conv="${esc(id)}">🗑 ${c.type === 'ws' ? 'Clear history' : 'Delete for everyone'}</button>` : ''}
         <a href="/app/#/chat/${encodeURIComponent(id)}" target="_blank" rel="noopener">Open in Lyrsoft Work</a>
       </div>`
     : '';
@@ -1148,6 +1154,43 @@ const actions = {
     try {
       await api('PATCH', `/chat/${encodeURIComponent(conv)}`, { name });
       await reloadConversation(conv);
+    } catch (error) {
+      toast(error.message);
+    }
+  },
+  'conv-delete': async (t) => {
+    const conv = t.dataset.conv;
+    S.menu = false;
+    if (!confirm(conv.startsWith('ws.') ? 'Clear every message in this channel, for everyone?' : 'Delete this chat and all its messages and files, for everyone? This can’t be undone.')) return renderMain();
+    try {
+      await api('DELETE', `/chat/${encodeURIComponent(conv)}`);
+      views.delete(conv);
+      await refreshList();
+      toast(conv.startsWith('ws.') ? 'Channel cleared' : 'Chat deleted');
+      go('#/');
+    } catch (error) {
+      toast(error.message);
+    }
+  },
+  // Call history: admins remove calls from their list; the super admin can delete a call for everyone.
+  'call-delete': async (t) => {
+    const everyone = t.dataset.everyone === '1';
+    if (everyone && !confirm('Delete this call for everyone who was on it?')) return;
+    try {
+      await api('DELETE', `/calls/${encodeURIComponent(t.dataset.id)}${everyone ? '?everyone=1' : ''}`);
+      S.calls = (S.calls || []).filter((c) => c.id !== t.dataset.id);
+      renderSide();
+    } catch (error) {
+      toast(error.message);
+    }
+  },
+  'calls-clear': async () => {
+    if (!confirm('Clear your whole call history?')) return;
+    try {
+      await api('DELETE', '/calls');
+      S.calls = [];
+      renderSide();
+      toast('Call history cleared');
     } catch (error) {
       toast(error.message);
     }

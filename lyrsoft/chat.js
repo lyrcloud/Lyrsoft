@@ -204,6 +204,8 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
                        <button class="btn small ghost" data-click="chat-group-leave" title="Leave the group">Leave</button>`
                     : ''
                 }
+                ${current?.canDelete || (getMe()?.globalRole === 'superadmin' && !route.conv.startsWith('ws.')) ? `<button class="btn small danger" data-click="chat-delete" title="Delete this conversation for everyone">🗑 Delete</button>` : ''}
+                ${getMe()?.globalRole === 'superadmin' && route.conv.startsWith('ws.') ? `<button class="btn small danger" data-click="chat-delete" title="Clear this channel’s history for everyone">🗑 Clear</button>` : ''}
               </div>
             </header>
             <div class="chat-cv-host"></div>`
@@ -285,6 +287,23 @@ export function createChat({ api, esc, toast, render, go, initial, formatDateTim
         await api('PATCH', `/chat/${encodeURIComponent(id)}`, { name });
         await refresh(id);
         toast('Group renamed');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'chat-delete': async () => {
+      const id = route.conv;
+      const current = findConversation(id);
+      const channel = id.startsWith('ws.');
+      if (!confirm(channel ? 'Clear every message in this team channel, for everyone? This can’t be undone.' : `Delete “${current?.title || 'this conversation'}” and all its messages and files, for everyone? This can’t be undone.`)) return;
+      try {
+        await api('DELETE', `/chat/${encodeURIComponent(id)}`);
+        views.get(id)?.unmount();
+        views.delete(id);
+        await loadList();
+        toast(channel ? 'Channel cleared' : 'Conversation deleted');
+        go(channel ? `#/chat/${encodeURIComponent(id)}` : '#/chat');
+        if (channel) render();
       } catch (error) {
         toast(error.message);
       }

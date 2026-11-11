@@ -146,7 +146,7 @@ export class ConversationView {
       <div class="cv-messages" aria-live="polite">${this.messagesHtml()}</div>
       <div class="cv-status">${this.statusHtml()}</div>
       <form class="cv-compose" novalidate>
-        ${this.replyTo || this.editing ? `<div class="cv-context"><span>${this.editing ? '✎ Editing your message' : `↩ Replying to <b>${esc(this.nameOf(this.replyTo.authorEmail))}</b>: ${esc(this.snippet(this.replyTo))}`}</span><button type="button" class="icon-btn" data-cv="cancel-context" aria-label="Cancel">✕</button></div>` : ''}
+        ${this.replyTo || this.editing ? `<div class="cv-context"><span>${this.editing ? (this.editing.authorEmail === this.getMe().email ? '✎ Editing your message' : `✎ Editing ${esc(this.nameOf(this.editing.authorEmail))}’s message`) : `↩ Replying to <b>${esc(this.nameOf(this.replyTo.authorEmail))}</b>: ${esc(this.snippet(this.replyTo))}`}</span><button type="button" class="icon-btn" data-cv="cancel-context" aria-label="Cancel">✕</button></div>` : ''}
         ${this.pending.length || this.uploading ? `<div class="cv-pending">${this.pending.map((f, i) => `<span class="cv-pending-file">${f.preview ? `<img src="${esc(f.preview)}" alt="" />` : '📎'}<small>${esc(f.name)}</small><button type="button" data-cv="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></span>`).join('')}${this.uploading ? `<span class="muted small">Uploading ${this.uploading}…</span>` : ''}</div>` : ''}
         ${this.emojiOpen ? `<div class="cv-emoji" role="listbox" aria-label="Emoji">${EMOJI.map((e) => `<button type="button" data-cv="emoji" data-e="${e}">${e}</button>`).join('')}</div>` : ''}
         ${this.voice ? `<div class="cv-compose-row cv-recording"><button type="button" class="icon-btn" data-cv="voice-cancel" aria-label="Cancel voice message">🗑</button><span class="cv-rec-dot" aria-hidden="true"></span><span class="cv-rec-time">${clock(Date.now() - this.voice.started)}</span><span class="muted small">Recording…</span><button type="button" class="btn primary cv-send" data-cv="voice-send" aria-label="Send voice message">➤</button></div>` : `<div class="cv-compose-row">
@@ -228,7 +228,7 @@ export class ConversationView {
         lastDay = day;
         if (m.kind === 'system') {
           lastAuthor = '';
-          return `${divider}<p class="chat-system">${esc(m.body)}</p>`;
+          return `${divider}<p class="chat-system" id="cv-${esc(m.id)}">${esc(m.body)}${m.canDelete ? ` <button type="button" class="cv-sys-del" data-cv="unsend" data-id="${esc(m.id)}" aria-label="Delete this notice" title="Delete">✕</button>` : ''}</p>`;
         }
         const mine = m.authorEmail === me;
         const continued = lastAuthor === m.authorEmail;
@@ -265,7 +265,7 @@ export class ConversationView {
                   ${content}
                   <time>${m.editedAt && !m.deleted ? 'Edited · ' : ''}${time}</time>
                 </div>
-                ${m.deleted || m.kind !== 'text' ? '' : `<button type="button" class="cv-more" data-cv="menu" data-id="${esc(m.id)}" aria-label="Message actions">⋯</button>`}
+                ${m.deleted || (m.kind !== 'text' && !m.canDelete) ? '' : `<button type="button" class="cv-more" data-cv="menu" data-id="${esc(m.id)}" aria-label="Message actions">⋯</button>`}
               </div>
               ${m.reactions.length ? `<div class="cv-reactions">${m.reactions.map((r) => `<button type="button" class="cv-reaction${r.mine ? ' mine' : ''}" data-cv="react" data-id="${esc(m.id)}" data-e="${r.emoji}" title="${esc(r.names.join(', '))}">${r.emoji}${r.count > 1 ? ` ${r.count}` : ''}</button>`).join('')}</div>` : ''}
               ${this.menuFor === m.id ? this.menuHtml(m, mine) : ''}
@@ -332,13 +332,18 @@ export class ConversationView {
     if (this.pending.length) await this.send('');
   }
 
+  // Edit and delete follow the server's canEdit / canDelete: your own messages, or anything for the super admin.
   menuHtml(m, mine) {
+    const id = this.esc(m.id);
+    const del = m.canDelete ? `<button type="button" class="danger" data-cv="unsend" data-id="${id}">🗑 ${mine ? 'Unsend' : 'Delete'}</button>` : '';
+    if (m.kind !== 'text') return `<div class="cv-menu" role="menu">${del}</div>`;
     return `
       <div class="cv-menu" role="menu">
-        <div class="cv-react-bar">${REACTIONS.map((e) => `<button type="button" data-cv="react" data-id="${this.esc(m.id)}" data-e="${e}" aria-label="React ${e}">${e}</button>`).join('')}</div>
-        <button type="button" data-cv="reply" data-id="${this.esc(m.id)}">↩ Reply</button>
-        ${m.body ? `<button type="button" data-cv="copy" data-id="${this.esc(m.id)}">⧉ Copy</button>` : ''}
-        ${mine ? `<button type="button" data-cv="edit" data-id="${this.esc(m.id)}">✎ Edit</button><button type="button" class="danger" data-cv="unsend" data-id="${this.esc(m.id)}">🗑 Unsend</button>` : ''}
+        <div class="cv-react-bar">${REACTIONS.map((e) => `<button type="button" data-cv="react" data-id="${id}" data-e="${e}" aria-label="React ${e}">${e}</button>`).join('')}</div>
+        <button type="button" data-cv="reply" data-id="${id}">↩ Reply</button>
+        ${m.body ? `<button type="button" data-cv="copy" data-id="${id}">⧉ Copy</button>` : ''}
+        ${m.canEdit ? `<button type="button" data-cv="edit" data-id="${id}">✎ Edit</button>` : ''}
+        ${del}
       </div>`;
   }
 
@@ -464,7 +469,7 @@ export class ConversationView {
     }
     if (action === 'unsend') {
       this.menuFor = null;
-      if (!confirm('Unsend this message for everyone?')) return this.patch();
+      if (!confirm(m.authorEmail === this.getMe().email ? 'Unsend this message for everyone?' : 'Delete this message for everyone?')) return this.patch();
       try {
         const { message } = await this.api('DELETE', `${this.path(`/messages/${encodeURIComponent(m.id)}`)}?at=${encodeURIComponent(m.at)}`);
         this.replace(message);

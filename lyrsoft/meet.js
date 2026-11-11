@@ -64,6 +64,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
           ${m.cancelled ? '' : `<button class="btn small" data-click="meet-copy" data-url="${esc(m.guestUrl || m.joinUrl)}">🔗 Copy link</button>`}
           ${m.conv ? `<a class="btn small" href="#/chat/${encodeURIComponent(m.conv)}">💬 Chat</a>` : ''}
           ${m.canManage && !m.cancelled ? `<button class="btn small" data-click="meet-invite" data-id="${esc(m.id)}">+ Invite</button><button class="btn small ghost" data-click="meet-cancel" data-id="${esc(m.id)}">Cancel</button>` : ''}
+          ${m.canDelete ? `<button class="btn small danger" data-click="meet-delete" data-id="${esc(m.id)}" title="Remove the meeting and its group chat for everyone">🗑 Delete</button>` : ''}
         </div>
       </article>`;
   }
@@ -735,6 +736,17 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         meet.list = await api('GET', '/meetings');
         render();
         toast('Meeting cancelled');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
+    'meet-delete': async (target) => {
+      if (!confirm('Delete this meeting and its group chat for everyone? Nobody is emailed. This can’t be undone.')) return;
+      try {
+        await api('DELETE', `/meetings/${encodeURIComponent(target.dataset.id)}?forever=1`);
+        meet.list = await api('GET', '/meetings');
+        render();
+        toast('Meeting deleted');
       } catch (error) {
         toast(error.message);
       }

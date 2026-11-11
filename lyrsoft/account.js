@@ -2,6 +2,7 @@
 //   #/profile        your profile: name, verified email, mobile number (texted 6-digit code), email updates
 //   #/admin          admin console (admins and the super admin): every account, roles, disabling
 //   #/admin/updates  product update emails to everyone opted in (sent by the super admin)
+//   #/admin/chats    every group, direct chat, meeting and call, to open or delete (super admin)
 import { avatarHtml, imageFileToAvatar } from './avatar.js';
 
 const PROVIDERS = { GoogleOIDC: 'Google', Cognito: 'Email and password', GitHubBridge: 'GitHub' };
@@ -114,19 +115,47 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
     if (route.view !== 'admin' || !isStaff()) return;
     if (route.tab === 'updates') {
       admin.updates = await api('GET', '/admin/updates');
+    } else if (route.tab === 'chats') {
+      if (isSuper()) admin.chats = await api('GET', '/admin/chats');
     } else {
       admin.users = (await api('GET', '/admin/users')).users;
     }
   }
 
-  const ready = (route) => route.view !== 'admin' || !isStaff() || (route.tab === 'updates' ? Boolean(admin.updates) : Boolean(admin.users));
+  const ready = (route) => route.view !== 'admin' || !isStaff() || (route.tab === 'updates' ? Boolean(admin.updates) : route.tab === 'chats' ? !isSuper() || Boolean(admin.chats) : Boolean(admin.users));
 
   function tabs(route) {
     return `
       <div class="segmented admin-tabs" role="tablist">
-        <a href="#/admin"${route.tab !== 'updates' ? ' aria-current="page"' : ''}>👥 Users</a>
+        <a href="#/admin"${route.tab === 'users' ? ' aria-current="page"' : ''}>👥 Users</a>
         <a href="#/admin/updates"${route.tab === 'updates' ? ' aria-current="page"' : ''}>✉ Update emails</a>
+        ${isSuper() ? `<a href="#/admin/chats"${route.tab === 'chats' ? ' aria-current="page"' : ''}>💬 Chats &amp; calls</a>` : ''}
       </div>`;
+  }
+
+  // Super admin: every group, direct chat, meeting and call on Lyrsoft, with Open and Delete.
+  function chatsView() {
+    if (!isSuper()) return '<section class="panel"><p class="muted">Only the super admin can see every conversation.</p></section>';
+    const c = admin.chats;
+    const q = (admin.chatFilter || '').trim().toLowerCase();
+    const hit = (...v) => !q || v.join(' ').toLowerCase().includes(q);
+    const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+    const table = (title, head, rows) => `
+      <section class="panel">
+        <div class="panel-head"><h2>${title}</h2><span class="muted">${rows.length}</span></div>
+        ${rows.length ? `<div class="table-scroll"><table class="list-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}<th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="muted">None.</p>'}
+      </section>`;
+    const conv = (x) => `<tr><td><b>${esc(x.title || '(no name)')}</b>${x.meeting ? ' <span class="pill">meeting</span>' : ''}<br><small class="muted">${esc(x.lastSnippet || '')}</small></td><td>${x.members}</td><td>${esc(x.createdBy || '—')}</td><td>${esc(when(x.lastMessageAt))}</td>
+      <td class="right"><a class="btn small" href="#/chat/${encodeURIComponent(x.id)}">Open</a> <button class="btn small danger" data-click="admin-chat-delete" data-kind="chat" data-id="${esc(x.id)}" data-title="${esc(x.title || '')}">Delete</button></td></tr>`;
+    return `
+      <section class="panel"><div class="panel-head spread"><h2>Everything in Messages, Meetings and Lyr Chat</h2><input type="search" class="search" placeholder="Search names, emails, titles" value="${esc(admin.chatFilter || '')}" data-input="admin-chat-filter" aria-label="Search conversations" /></div>
+        <p class="muted small">Only you see this page. You can open any conversation, edit or delete any message in it, and delete any group, chat, meeting or call for everyone. Admins can delete only the groups and meetings they made, and their own call history.${c.complete ? '' : ' The list stopped early because there is a lot of data; search narrows what is shown, not what was read.'}</p></section>
+      ${table('Groups', ['Group', 'People', 'Made by', 'Last message'], c.groups.filter((x) => hit(x.title, x.createdBy, x.lastSnippet)).map(conv))}
+      ${table('Direct chats', ['Between', 'People', 'Started by', 'Last message'], c.dms.filter((x) => hit(x.title, x.createdBy, x.lastSnippet)).map(conv))}
+      ${table('Meetings', ['Meeting', 'Host', 'Starts', 'Invited'], c.meetings.filter((x) => hit(x.title, x.hostEmail, x.hostName)).map((x) => `<tr><td><b>${esc(x.title)}</b>${x.cancelled ? ' <span class="pill">cancelled</span>' : ''}</td><td>${esc(x.hostName || x.hostEmail)}</td><td>${esc(when(x.startsAt))}</td><td>${x.invitees}</td>
+        <td class="right"><a class="btn small" href="#/meet/${encodeURIComponent(x.id)}">Open</a> <button class="btn small danger" data-click="admin-chat-delete" data-kind="meeting" data-id="${esc(x.id)}" data-title="${esc(x.title)}">Delete</button></td></tr>`))}
+      ${table('Calls · last 90 days', ['Call', 'From', 'Status', 'When'], c.calls.filter((x) => hit(x.title, x.from, x.fromName)).map((x) => `<tr><td>${x.video ? '📹' : '📞'} <b>${esc(x.title)}</b><br><small class="muted">${x.members} people · ${x.convType === 'group' ? 'group' : 'direct'}</small></td><td>${esc(x.fromName || x.from)}</td><td>${esc(x.status)}</td><td>${esc(when(x.startedAt))}</td>
+        <td class="right"><a class="btn small" href="#/chat/${encodeURIComponent(x.conv)}">Chat</a> <button class="btn small danger" data-click="admin-chat-delete" data-kind="call" data-id="${esc(x.id)}" data-title="${esc(x.title)}">Delete</button></td></tr>`))}`;
   }
 
   function usersView() {
@@ -202,8 +231,8 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
   function adminView(route) {
     if (!isStaff()) return '<section class="panel empty"><h2>Admins only</h2><p>You need an admin role to open the admin console.</p></section>';
     return `
-      <div class="page-head"><div><h1>Admin console</h1><p>${isSuper() ? 'You’re the super admin.' : 'You’re an admin.'} Manage Lyrsoft accounts and update emails.</p></div>${tabs(route)}</div>
-      ${route.tab === 'updates' ? updatesView() : usersView()}`;
+      <div class="page-head"><div><h1>Admin console</h1><p>${isSuper() ? 'You’re the super admin.' : 'You’re an admin.'} Manage Lyrsoft accounts${isSuper() ? ', update emails and every chat, meeting and call' : ' and update emails'}.</p></div>${tabs(route)}</div>
+      ${route.tab === 'updates' ? updatesView() : route.tab === 'chats' ? chatsView() : usersView()}`;
   }
 
   // ---------------------------------------------------------------- actions
@@ -232,6 +261,20 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
   };
 
   const clickActions = {
+    'admin-chat-delete': async (target) => {
+      const { kind, id, title } = target.dataset;
+      const what = { chat: 'this conversation, its messages and files', meeting: 'this meeting and its group chat', call: 'this call from everyone’s history' }[kind];
+      if (!confirm(`Delete ${what}${title ? ` (“${title}”)` : ''} for everyone? This can’t be undone.`)) return;
+      const path = { chat: `/chat/${encodeURIComponent(id)}`, meeting: `/meetings/${encodeURIComponent(id)}?forever=1`, call: `/calls/${encodeURIComponent(id)}?everyone=1` }[kind];
+      try {
+        await api('DELETE', path);
+        admin.chats = await api('GET', '/admin/chats');
+        render();
+        toast('Deleted');
+      } catch (error) {
+        toast(error.message);
+      }
+    },
     'avatar-provider': () => saveAvatar(null, 'Using your Google photo'),
     'avatar-remove': () => saveAvatar('initials', 'Photo removed'),
     'phone-change': () => {
@@ -336,6 +379,14 @@ export function createAccount({ api, esc, toast, render, go, initial, formatDate
   };
 
   const inputActions = {
+    'admin-chat-filter': (target) => {
+      admin.chatFilter = target.value;
+      const { selectionStart } = target;
+      render();
+      const search = document.querySelector('[data-input="admin-chat-filter"]');
+      search?.focus();
+      search?.setSelectionRange(selectionStart, selectionStart);
+    },
     'admin-filter': (target) => {
       admin.filter = target.value;
       const { selectionStart } = target;

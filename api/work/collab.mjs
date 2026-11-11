@@ -14,6 +14,9 @@
 //   PATCH /chat/{conv}/messages/{id}            { at, body } edit your message
 //   DELETE /chat/{conv}/messages/{id}?at=       unsend your message (its files are deleted)
 //   POST /chat/{conv}/messages/{id}/react       { at, emoji } add or remove your reaction
+//   DELETE /chat/{conv}                         delete a group (or DM) for everyone; a team channel's history is cleared
+//                                               (admins: groups they made; the super admin: anything)
+// The super admin can open, edit and delete in any conversation (collab-model.mjs "who may delete what").
 // Messages can reply to another ({ replyTo: { id, at } }) and carry files ({ attachments }). GET
 // messages?since=<serverTime> returns what's new or changed since the last poll, plus who's typing,
 // who has seen what (DMs and groups) and who's active. Every meeting has a conversation for its chat:
@@ -31,6 +34,7 @@
 //   POST   /meetings/{id}/invite               { invitees } invite more people (host or staff)
 //   POST   /meetings/{id}/join                 Chime meeting + attendee for this person
 //   DELETE /meetings/{id}                      cancel (host or staff); invitees are emailed
+//   DELETE /meetings/{id}?forever=1            remove it and its own group chat (admin hosts, the super admin)
 //
 // Lyr Chat (lyrsoft.com/chat/) adds, on top of the above:
 //   POST /chat/dm                               { email } or { phone }: anyone on Lyrsoft, not only co-workers.
@@ -45,6 +49,8 @@
 //   GET  /calls                                 my call history       GET /calls/ringing   calls ringing for me
 //   GET  /calls/{id}                            status (the caller watches for answer / decline)
 //   POST /calls/{id}/answer | decline | end
+//   DELETE /calls/{id}[?everyone=1]             remove from my call history (admins); for everyone (super admin)
+//   DELETE /calls                               clear my call history (admins and the super admin)
 //   POST /public/call                           { id, email, t } "Decline" from a notification (signed token)
 //   GET  /push/key, POST /push/subscribe, POST /push/unsubscribe   Web Push for new messages and calls
 //   POST /push/native                           { token, platform } the phone app's FCM token (push.mjs)
@@ -104,6 +110,12 @@ import {
   attendeeExternalId,
   canManageMeeting,
   canSeeMeeting,
+  canClearCallHistory,
+  canDeleteConversation,
+  canDeleteMeeting,
+  canDeleteMessage,
+  canEditMessage,
+  isSuperAdmin,
   GUEST_KEY_RE,
   newGuestKey,
   PHONE_LOOKUPS_PER_DAY,
@@ -151,7 +163,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       return { conv, meta: { ...meta, title: workspace.name }, workspace };
     }
     const meta = await get(`CHAT#${conv}`, 'META');
-    if (!meta || !meta.members.includes(me.email)) throw new HttpError(404, 'Conversation not found.');
+    if (!meta || !(meta.members.includes(me.email) || isSuperAdmin(me.globalRole))) throw new HttpError(404, 'Conversation not found.');
     return { conv, meta };
   }
 
@@ -226,6 +238,8 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
       createdAt: m.createdAt,
       editedAt: m.editedAt || null,
       deleted,
+      canEdit: canEditMessage(m, me.email, me.globalRole),
+      canDelete: canDeleteMessage(m, me.email, me.globalRole),
       replyTo: deleted ? null : m.replyTo || null,
       reactions: deleted ? [] : reactionsOut(m.reactions, me.email, nameOf),
       attachments: deleted
@@ -274,7 +288,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
         const meta = await get(`CHAT#${row.conv}`, 'META');
         if (!meta) return null;
         if (meta.type === 'group') {
-          return out(row.conv, meta, { type: 'group', title: meta.title, memberCount: meta.members.length, members: meta.members });
+          return out(row.conv, meta, { type: 'group', title: meta.title, memberCount: meta.members.length, members: meta.members, canDelete: canDeleteConversation(meta, me.email, me.globalRole) });
         }
         const other = meta.members.find((e) => e !== me.email) || me.email;
         const request = requestState(meta, me.email);
@@ -542,6 +556,43 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { left: true };
   });
 
+  // Deletes a conversation's messages, their files and everyone's read marks (keeps the META row).
+  async function wipeMessages(conv, members = []) {
+    const rows = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `CHAT#${conv}` } });
+    for (const row of rows) for (const a of row.attachments || []) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: a.key })).catch(() => {});
+    const drop = rows.filter((r) => r.SK !== 'META');
+    for (const r of drop) await db.del(r.PK, r.SK);
+    for (const email of members) await db.del(`CHATREAD#${email}`, conv);
+    return rows.find((r) => r.SK === 'META') || null;
+  }
+
+  // A group (or DM) is deleted for everyone; a team channel keeps existing with its history cleared.
+  async function deleteConversation(conv) {
+    if (conv.startsWith('ws.')) {
+      const meta = await wipeMessages(conv);
+      if (meta) await put({ ...meta, lastMessageAt: null, lastSnippet: '', lastAuthor: null });
+      return { cleared: true };
+    }
+    const meta = await get(`CHAT#${conv}`, 'META');
+    if (!meta) return { deleted: true };
+    await wipeMessages(conv, meta.members || []);
+    await db.del(`CHAT#${conv}`, 'META');
+    if (meta.meetingId) {
+      const meeting = await get(`MEETING#${meta.meetingId}`, 'META');
+      if (meeting?.conv === conv) await put({ ...meeting, conv: null });
+    }
+    return { deleted: true };
+  }
+
+  route('DELETE', '/chat/{conv}', async (me, { conv }) => {
+    const { meta } = await openConversation(me, conv);
+    const type = meta.type || (conv.startsWith('ws.') ? 'ws' : 'dm');
+    if (!canDeleteConversation({ ...meta, type }, me.email, me.globalRole)) {
+      throw new HttpError(403, type === 'group' ? 'Only an admin who made this group, or the super admin, can delete it.' : 'Only the super admin can delete this conversation.');
+    }
+    return deleteConversation(conv);
+  });
+
   const messageKey = (conv, id, at) => {
     if (!/^[\w-]{6,40}$/.test(String(id)) || !/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(String(at))) throw bad('Which message?');
     return [`CHAT#${conv}`, `MSG#${at}#${id}`];
@@ -582,6 +633,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
         label: meta.request?.label || '',
         support: Boolean(meta.request?.support),
         blocked,
+        canDelete: canDeleteConversation({ ...meta, type }, me.email, me.globalRole),
         canCall: type === 'group' || (type === 'dm' && canCall(meta, me.email, blocked || (await blockedBy(other, me.email)))),
       },
       messages: (await Promise.all(messages.map((m) => messageOut(m, me, nameOf)))).map((m) => (supportAccount(meta) && m.authorEmail === supportAccount(meta) && me.email !== m.authorEmail ? { ...m, authorName: SUPPORT_NAME } : m)),
@@ -617,7 +669,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
   route('PATCH', '/chat/{conv}/messages/{id}', async (me, { conv, id }, body) => {
     await openConversation(me, conv);
     const message = await openMessage(conv, id, body.at);
-    if (message.authorEmail !== me.email || message.kind !== 'text' || message.deletedAt) throw new HttpError(403, 'You can only edit your own messages.');
+    if (!canEditMessage(message, me.email, me.globalRole)) throw new HttpError(403, 'You can only edit your own messages.');
     const text = message.attachments?.length && !String(body.body || '').trim() ? '' : tryClean(() => cleanMessage(body.body));
     const next = { ...message, body: text, editedAt: now(), updatedAt: now() };
     await put(next);
@@ -627,7 +679,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
   route('DELETE', '/chat/{conv}/messages/{id}', async (me, { conv, id }, _b, query) => {
     await openConversation(me, conv);
     const message = await openMessage(conv, id, query.get('at'));
-    if (message.authorEmail !== me.email || message.kind !== 'text') throw new HttpError(403, 'You can only unsend your own messages.');
+    if (!canDeleteMessage(message, me.email, me.globalRole)) throw new HttpError(403, 'You can only unsend your own messages.');
     for (const a of message.attachments || []) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: a.key })).catch(() => {});
     const next = { ...message, body: '', attachments: [], reactions: {}, replyTo: null, deletedAt: now(), updatedAt: now() };
     await put(next);
@@ -679,6 +731,7 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     conv: m.conv || null,
     cancelled: Boolean(m.cancelledAt),
     canManage: canManageMeeting(m, me.email, isStaff(me.globalRole)),
+    canDelete: canDeleteMeeting(m, me.email, me.globalRole),
     joinUrl: `${siteUrl}/app/#/meet/${m.meetingId}`,
     // Hosts get a link anyone can use (after signing in), to send by WhatsApp, SMS or anywhere.
     guestUrl: canManageMeeting(m, me.email, isStaff(me.globalRole)) && m.guestKey ? `${siteUrl}/app/#/meet/${m.meetingId}?k=${m.guestKey}` : null,
@@ -862,8 +915,22 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { meeting: meetingOut(next, me), emailed };
   });
 
-  route('DELETE', '/meetings/{id}', async (me, { id }) => {
+  // Removes a meeting for good: its record, everyone's invite rows and its own group chat.
+  async function deleteMeeting(meeting) {
+    if (meeting.chimeMeetingId) await chime.send(new DeleteMeetingCommand({ MeetingId: meeting.chimeMeetingId })).catch(() => {});
+    const own = meeting.conv && (await get(`CHAT#${meeting.conv}`, 'META'));
+    if (own?.meetingId === meeting.meetingId) await deleteConversation(meeting.conv);
+    const rows = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `MEETING#${meeting.meetingId}` } });
+    for (const r of rows) await db.del(r.PK, r.SK);
+  }
+
+  route('DELETE', '/meetings/{id}', async (me, { id }, _b, query) => {
     const meeting = await openMeeting(me, id);
+    if (query?.get('forever')) {
+      if (!canDeleteMeeting(meeting, me.email, me.globalRole)) throw new HttpError(403, 'Only an admin who hosts this meeting, or the super admin, can delete it.');
+      await deleteMeeting(meeting);
+      return { deleted: true };
+    }
     if (!canManageMeeting(meeting, me.email, isStaff(me.globalRole))) throw new HttpError(403, 'Only the host can cancel this meeting.');
     if (meeting.chimeMeetingId) await chime.send(new DeleteMeetingCommand({ MeetingId: meeting.chimeMeetingId })).catch(() => {});
     await put({ ...meeting, cancelledAt: now(), chimeMeetingId: null, chimeMeeting: null });
@@ -1030,7 +1097,76 @@ export function registerCollabRoutes(route, { db, HttpError, openWorkspace, isSt
     return { calls };
   });
 
+  // Call history: admins remove calls from their own list; the super admin can delete a call for
+  // everyone (its record, everyone's history rows and its call room).
+  async function deleteCallForEveryone(call) {
+    const rows = await queryAll({ KeyConditionExpression: 'PK = :pk', ExpressionAttributeValues: { ':pk': `CALL#${call.callId}` } });
+    for (const r of rows) await db.del(r.PK, r.SK);
+    const meeting = call.meetingId && (await get(`MEETING#${call.meetingId}`, 'META'));
+    if (meeting?.callId === call.callId) await deleteMeeting(meeting);
+  }
+
+  route('DELETE', '/calls/{id}', async (me, { id }, _b, query) => {
+    if (!canClearCallHistory(me.globalRole)) throw new HttpError(403, 'Only admins can delete call history.');
+    const call = CALL_ID_RE.test(String(id)) ? await get(`CALL#${id}`, 'META') : null;
+    if (!call) throw new HttpError(404, 'Call not found.');
+    if (query?.get('everyone')) {
+      if (!isSuperAdmin(me.globalRole)) throw new HttpError(403, 'Only the super admin can delete a call for everyone.');
+      await deleteCallForEveryone(call);
+      return { deleted: true, everyone: true };
+    }
+    if (call.from !== me.email && !call.members.includes(me.email)) throw new HttpError(404, 'Call not found.');
+    await db.del(`CALL#${call.callId}`, `USER#${me.email}`);
+    return { deleted: true };
+  });
+
+  route('DELETE', '/calls', async (me) => {
+    if (!canClearCallHistory(me.globalRole)) throw new HttpError(403, 'Only admins can delete call history.');
+    const rows = await queryAll({ IndexName: 'GSI1', KeyConditionExpression: 'GSI1PK = :pk', ExpressionAttributeValues: { ':pk': `CALLUSER#${me.email}` } });
+    for (const r of rows) await db.del(`CALL#${r.callId}`, `USER#${me.email}`);
+    return { deleted: rows.length };
+  });
+
   route('GET', '/calls/{id}', async (me, { id }) => ({ call: callOut(await openCall(me, id), me) }));
+
+  // ---------------------------------------------------------------- super admin: everything
+  //   GET /admin/chats   every group, direct chat, meeting and call (last 90 days), to open or delete
+
+  route('GET', '/admin/chats', async (me) => {
+    if (!isSuperAdmin(me.globalRole)) throw new HttpError(403, 'Only the super admin can see every conversation.');
+    if (!db.scanAll) throw bad('Not available here.');
+    const { items, complete } = await db.scanAll({
+      FilterExpression: 'SK = :meta AND (begins_with(PK, :chat) OR begins_with(PK, :meeting) OR begins_with(PK, :call))',
+      ExpressionAttributeValues: { ':meta': 'META', ':chat': 'CHAT#', ':meeting': 'MEETING#', ':call': 'CALL#' },
+      ProjectionExpression: 'PK, SK, conv, #t, title, members, names, createdBy, createdAt, lastMessageAt, lastSnippet, meetingId, callId, hostEmail, hostName, startsAt, invitees, cancelledAt, #f, fromName, #s, startedAt, video, convType, wsId',
+      ExpressionAttributeNames: { '#t': 'type', '#f': 'from', '#s': 'status' },
+    });
+    const rows = items.filter((r) => r.SK === 'META');
+    const recent = (a, b) => String(b).localeCompare(String(a));
+    const since = new Date(Date.now() - 90 * 864e5).toISOString();
+    const chats = rows.filter((r) => r.PK.startsWith('CHAT#') && !r.PK.startsWith('CHAT#ws.'));
+    const conversation = (r) => ({
+      id: r.conv || r.PK.slice(5),
+      type: r.type || 'dm',
+      title: r.type === 'group' ? r.title : (r.members || []).map((e) => r.names?.[e] || e).join(' · '),
+      members: (r.members || []).length,
+      createdBy: r.createdBy || null,
+      meeting: Boolean(r.meetingId),
+      lastMessageAt: r.lastMessageAt || r.createdAt || null,
+      lastSnippet: r.lastSnippet || '',
+    });
+    return {
+      complete,
+      groups: chats.filter((r) => r.type === 'group').map(conversation).sort((a, b) => recent(a.lastMessageAt, b.lastMessageAt)).slice(0, 500),
+      dms: chats.filter((r) => r.type !== 'group').map(conversation).sort((a, b) => recent(a.lastMessageAt, b.lastMessageAt)).slice(0, 500),
+      meetings: rows.filter((r) => r.PK.startsWith('MEETING#') && !r.callId).map((r) => ({
+        id: r.PK.slice(8), title: r.title, hostEmail: r.hostEmail, hostName: r.hostName || '', startsAt: r.startsAt, invitees: (r.invitees || []).length, cancelled: Boolean(r.cancelledAt), conv: r.conv || null,
+      })).sort((a, b) => recent(a.startsAt, b.startsAt)).slice(0, 500),
+      calls: rows.filter((r) => r.PK.startsWith('CALL#') && (r.startedAt || '') >= since).map((r) => ({
+        id: r.PK.slice(5), conv: r.conv, convType: r.convType, from: r.from, fromName: r.fromName || '', title: r.title || '', status: r.status, video: Boolean(r.video), members: (r.members || []).length + 1, startedAt: r.startedAt,
+      })).sort((a, b) => recent(a.startedAt, b.startedAt)).slice(0, 500),
+    };
+  });
 
   route('POST', '/calls/{id}/answer', async (me, { id }) => {
     let call = await openCall(me, id);

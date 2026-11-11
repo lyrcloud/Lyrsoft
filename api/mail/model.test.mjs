@@ -131,3 +131,20 @@ test('mailbox profiles: photo, name, colour, signature', async () => {
   assert.equal(withSignature('Hello\n', 'Team'), 'Hello\n\n-- \nTeam');
   assert.equal(withSignature('Hello', ''), 'Hello');
 });
+
+test('workspaces linked to a domain share its support inbox', async () => {
+  const { canUseMailbox, cleanMailLinks, linkedAddresses, sharedMailbox, suggestMailLinks } = await import('./model.mjs');
+  const boxes = [{ address: 'support@lyrtrip.com', members: [] }, { address: 'sales@lyrtrip.com', members: [] }, { address: 'all@lyrshop.com', catchAll: true, members: [] }];
+  assert.equal(sharedMailbox('lyrtrip.com', boxes).address, 'support@lyrtrip.com');
+  assert.equal(sharedMailbox('lyrshop.com', boxes).address, 'all@lyrshop.com', 'no support@, so the catch-all');
+  assert.equal(sharedMailbox('lyrpay.com', boxes), null);
+  const links = cleanMailLinks({ 'lyrtrip.com': ['ws1', 'ws1', 'bad id!'], 'evil.com': ['ws2'] }, ['lyrtrip.com', 'lyrshop.com']);
+  assert.deepEqual(links, { 'lyrtrip.com': ['ws1'] });
+  const linked = linkedAddresses(links, ['ws1'], boxes);
+  assert.deepEqual([...linked], ['support@lyrtrip.com']);
+  const me = { email: 'ana@gmail.com', globalRole: 'user' };
+  assert.equal(canUseMailbox(me, boxes[0], linked), true);
+  assert.equal(canUseMailbox(me, boxes[1], linked), false, 'only the shared inbox, not every address on the domain');
+  assert.equal(linkedAddresses(links, ['ws9'], boxes).size, 0);
+  assert.deepEqual(suggestMailLinks([{ id: 'a', name: 'Lyrtrip' }, { id: 'b', name: 'Lyr Shop' }, { id: 'c', name: 'Other' }], ['lyrtrip.com', 'lyrshop.com']), { 'lyrtrip.com': ['a'], 'lyrshop.com': ['b'] });
+});

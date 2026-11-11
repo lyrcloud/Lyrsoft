@@ -107,3 +107,25 @@ test('phone numbers find verified Lyrsoft accounts only, and only unambiguously'
   assert.equal(profileForPhone(profiles, '+15550000000'), null);
   assert.match(newGuestKey(), GUEST_KEY_RE);
 });
+
+test('who may edit and delete messages, groups, meetings and calls', async () => {
+  const { canClearCallHistory, canDeleteConversation, canDeleteMeeting, canDeleteMessage, canEditMessage } = await import('./collab-model.mjs');
+  const mine = { authorEmail: 'a@x.com', kind: 'text' };
+  const theirs = { authorEmail: 'b@x.com', kind: 'text' };
+  const notice = { authorEmail: 'b@x.com', kind: 'system' };
+  assert.equal(canEditMessage(mine, 'a@x.com', 'user'), true);
+  assert.equal(canEditMessage(theirs, 'a@x.com', 'admin'), false, 'admins only edit their own');
+  assert.equal(canEditMessage(theirs, 'a@x.com', 'superadmin'), true);
+  assert.equal(canDeleteMessage(notice, 'a@x.com', 'admin'), false);
+  assert.equal(canDeleteMessage(notice, 'a@x.com', 'superadmin'), true);
+  assert.equal(canDeleteMessage({ ...mine, deletedAt: 'x' }, 'a@x.com', 'superadmin'), false);
+  const group = { type: 'group', createdBy: 'a@x.com' };
+  assert.equal(canDeleteConversation(group, 'a@x.com', 'user'), false);
+  assert.equal(canDeleteConversation(group, 'a@x.com', 'admin'), true);
+  assert.equal(canDeleteConversation(group, 'c@x.com', 'admin'), false);
+  assert.equal(canDeleteConversation({ type: 'dm' }, 'a@x.com', 'admin'), false);
+  assert.equal(canDeleteConversation({ type: 'dm' }, 'z@x.com', 'superadmin'), true);
+  assert.equal(canDeleteMeeting({ hostEmail: 'a@x.com' }, 'a@x.com', 'admin'), true);
+  assert.equal(canDeleteMeeting({ hostEmail: 'a@x.com' }, 'a@x.com', 'user'), false);
+  assert.deepEqual(['user', 'admin', 'superadmin'].map(canClearCallHistory), [false, true, true]);
+});

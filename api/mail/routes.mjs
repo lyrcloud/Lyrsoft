@@ -13,6 +13,9 @@
 //   POST   /mail/mailboxes/{address}/empty                   { folder: trash|spam } delete the folder for good
 //   POST   /mail/mailboxes/{address}/threads/{thread}/reply  reply
 //   GET    .../threads/{thread}/messages/{msg}/attachments/{n}  short-lived download link
+//   GET    /mail/links                                       workspaces linked to each domain (super admin)
+//   PUT    /mail/links/{domain}                              { workspaces: [wsId] } link workspaces to a domain;
+//                                                            their members use its support@ (or catch-all) inbox
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { GetAccountCommand, GetEmailIdentityCommand, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -21,10 +24,14 @@ import {
   canManageMailboxes,
   canUseMailbox,
   cleanEmailList,
+  cleanMailLinks,
   cleanMailboxAddress,
   cleanMailboxProfile,
   isMailStaff,
+  linkedAddresses,
   mailDomains,
+  sharedMailbox,
+  suggestMailLinks,
   newId,
   quoteReply,
   replySubject,
@@ -35,8 +42,17 @@ import {
   threadActionChanges,
 } from './model.mjs';
 
-export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError }) {
+// `links`: { read(), write(links) } the stored domain → workspaces map; `workspaceIdsOf(email)` my
+// workspaces; `allWorkspaces()` every workspace ({ id, name }) for the super admin's link picker.
+export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError, links = null, workspaceIdsOf = async () => [], allWorkspaces = async () => [] }) {
   const domains = mailDomains();
+  // Shared inboxes my workspaces give me (none for staff, who see everything anyway).
+  async function linkedFor(me, mailboxes) {
+    if (!links || isMailStaff(me.globalRole)) return new Set();
+    const map = cleanMailLinks(await links.read(), domains);
+    if (!Object.keys(map).length) return new Set();
+    return linkedAddresses(map, await workspaceIdsOf(me.email), mailboxes || (await store.listMailboxes()));
+  }
   const bad = (message) => new HttpError(400, message);
   const clean = (fn) => {
     try {
@@ -48,7 +64,7 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
 
   async function openMailbox(me, address) {
     const mailbox = await store.getMailbox(String(address).toLowerCase());
-    if (!mailbox || !canUseMailbox(me, mailbox)) throw new HttpError(404, 'Mailbox not found.');
+    if (!mailbox || !canUseMailbox(me, mailbox, mailbox.members?.includes(me.email) ? null : await linkedFor(me))) throw new HttpError(404, 'Mailbox not found.');
     return mailbox;
   }
 
@@ -172,7 +188,9 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
   }
 
   route('GET', '/mail/mailboxes', async (me) => {
-    const mailboxes = (await store.listMailboxes()).filter((m) => canUseMailbox(me, m));
+    const all = await store.listMailboxes();
+    const linked = await linkedFor(me, all);
+    const mailboxes = all.filter((m) => canUseMailbox(me, m, linked));
     const out = await Promise.all(
       mailboxes.map(async (m) => {
         const [openCount, spamCount, trashCount] = await Promise.all(['open', 'spam', 'trash'].map((status) => store.countThreads(m.address, status)));
@@ -373,5 +391,45 @@ export function registerMailRoutes(route, { store, s3, ses, bucket, HttpError })
       { expiresIn: 300 },
     );
     return { url, filename: attachment.filename };
+  });
+
+  // ---------------------------------------------------------------- workspaces linked to domains
+
+  route('GET', '/mail/links', async (me) => {
+    if (!canManageMailboxes(me)) throw new HttpError(403, 'Only the super admin links workspaces to mail domains.');
+    const [map, workspaces, mailboxes] = await Promise.all([links ? links.read() : {}, allWorkspaces(), store.listMailboxes()]);
+    const current = cleanMailLinks(map, domains);
+    return {
+      links: current,
+      inbox: Object.fromEntries(domains.map((d) => [d, sharedMailbox(d, mailboxes)?.address || null])),
+      workspaces: workspaces.map((w) => ({ id: w.id, name: w.name })).sort((a, b) => a.name.localeCompare(b.name)),
+      suggestions: suggestMailLinks(workspaces, domains),
+    };
+  });
+
+  // Linking a domain that has no mailbox yet creates its support@ inbox.
+  route('PUT', '/mail/links/{domain}', async (me, { domain }, body) => {
+    if (!canManageMailboxes(me)) throw new HttpError(403, 'Only the super admin links workspaces to mail domains.');
+    if (!links) throw bad('Workspace links aren’t available here.');
+    const name = String(domain).toLowerCase();
+    if (!domains.includes(name)) throw new HttpError(404, 'Unknown mail domain.');
+    const known = new Set((await allWorkspaces()).map((w) => w.id));
+    const ids = (Array.isArray(body.workspaces) ? body.workspaces : []).map(String).filter((id) => known.has(id));
+    const next = cleanMailLinks({ ...(await links.read()), [name]: ids }, domains);
+    if (!ids.length) delete next[name];
+    await links.write(next);
+    let created = null;
+    const mailboxes = await store.listMailboxes();
+    if (ids.length && !sharedMailbox(name, mailboxes)) {
+      const address = `support@${name}`;
+      const label = name.split('.')[0];
+      created = {
+        PK: `MAILBOX#${address}`, SK: 'META', GSI1PK: 'MAILBOX', GSI1SK: address, address,
+        displayName: `${label.charAt(0).toUpperCase()}${label.slice(1)} Support`,
+        members: [], catchAll: false, createdAt: new Date().toISOString(), createdBy: me.email,
+      };
+      await store.putMailbox(created);
+    }
+    return { links: next, inbox: created?.address || sharedMailbox(name, mailboxes)?.address || null, created: Boolean(created) };
   });
 }

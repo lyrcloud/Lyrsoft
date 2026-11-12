@@ -66,7 +66,7 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 
 ## Ad revenue
 
-**Lyrsoft Ad revenue** (`/app/#/w/<workspace>/ads`, `lyrsoft/ads.js`), above SEO in the left bar, is a placeholder for earning from ads on a workspace's own sites (Google AdSense) and apps (Google AdMob). Nothing is connected yet. Spending on ads stays in Ads & budget.
+**Lyrsoft Ad revenue** (`/app/#/w/<workspace>/ads`, `lyrsoft/ads.js`), above SEO in the left bar, shows what ads on a workspace's own websites (Google AdSense) and apps (Google AdMob) earn. Owners and admins connect each network themselves under Accounts with their own Google OAuth client ID, secret and a read-only refresh token (`adsense.readonly` / `admob.readonly`); keys are sealed like Ads & budget's. Earnings per day and site or app (API in `api/work/ads.mjs`, connectors in `api/work/ads-connectors.mjs`, rules in `api/work/ads-model.mjs`) sync on connect, on Sync and every 6 hours from the one-minute tick (last 7 days, as Google finalises late). The Earnings tab shows the month total, projection, change against the same days last month, a daily chart and tables per network and per site or app. Spending on ads stays in Ads & budget.
 
 ## SEO
 

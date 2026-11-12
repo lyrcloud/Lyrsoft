@@ -22,6 +22,7 @@
 //   GRO#<ws> …, GROWCH <ws>#<p>     Lyrsoft Ads & budget: platform connections, plans, budgets, spend (growth.mjs)
 //   FIN#<ws> …                      Lyrsoft Costs & analytics: entries, recurring costs, categories (finance.mjs)
 //   OPS#<ws> …, OPSMON <ws>#<id>    Lyrsoft Performance & maintenance: monitors, checks, incidents, tasks (ops.mjs)
+//   ADS#<ws> …, ADSCH <ws>#<p>      Lyrsoft Ad revenue: AdSense / AdMob connections and earnings (ads.mjs)
 //   SEO#<ws> …                      Lyrsoft SEO: sites, audits, settings (seo.mjs)
 //
 // Members are keyed by email, so people can be invited before they first sign in. Emails are
@@ -94,6 +95,7 @@ import { registerGrowthRoutes } from './growth.mjs';
 import { registerFinanceRoutes } from './finance.mjs';
 import { registerOpsRoutes } from './ops.mjs';
 import { registerSeoRoutes } from './seo.mjs';
+import { registerAdsRoutes } from './ads.mjs';
 import { createPush } from './push.mjs';
 import { registerMarketingRoutes } from './marketing.mjs';
 import { CONTACT_LIMIT_PER_HOUR, cleanContact, contactSubject, contactText, leadsBoard, leadValues } from './leads.mjs';
@@ -918,6 +920,8 @@ const ops = registerOpsRoutes(route, { db: { get, put, del, queryAll, putMany, d
 
 registerSeoRoutes(route, { db: { get, put, del, queryAll }, HttpError, openWorkspace, now, newId, countUse: (key, period) => countUse(key, period) });
 
+const adRevenue = registerAdsRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, getAppSecret: () => getAppSecret() });
+
 const growth = registerGrowthRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, getAppSecret: () => getAppSecret() });
 
 const hr = registerHrRoutes(route, { db: { get, put, del, queryAll, putMany, deleteKeys }, HttpError, openWorkspace, now, newId, countUse: (key, period) => countUse(key, period) });
@@ -1100,9 +1104,10 @@ function parseBody(event) {
 
 export const handler = async (event) => {
   if (event?.lyrsoftTask === 'marketing-tick') {
-    // The one-minute tick also refreshes connected ad platforms (Lyrsoft Ads & budget) and runs
+    // The one-minute tick also refreshes connected ad platforms (Lyrsoft Ads & budget) and ad
+    // revenue accounts (Lyrsoft Ad revenue), and runs
     // site and app checks (Lyrsoft Performance & maintenance).
-    const [result] = await Promise.all([marketing.handleTask(event), growth.tick().catch((error) => console.error('growth tick', error)), ops.tick().catch((error) => console.error('ops tick', error))]);
+    const [result] = await Promise.all([marketing.handleTask(event), growth.tick().catch((error) => console.error('growth tick', error)), adRevenue.tick().catch((error) => console.error('ads tick', error)), ops.tick().catch((error) => console.error('ops tick', error))]);
     return result;
   }
   if (marketing.isTask(event)) return marketing.handleTask(event);

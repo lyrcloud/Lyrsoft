@@ -7839,19 +7839,28 @@ td .gr-bar {
 }
 .cv-sys-del:hover { color: var(--danger, #d83a52); }
 
-/* Ad revenue (ads.js): placeholder cards for AdSense and AdMob. */
+/* Ad revenue (ads.js). */
 .ads-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
 }
-.ads-card h2 {
-  margin: 0 0 4px;
-  font-size: 1.1rem;
+.ads-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.ads-card ul {
-  margin: 12px 0 16px;
-  padding-left: 1.2em;
-  line-height: 1.6;
+.ads-pick small {
+  display: block;
+}
+.ads-steps {
+  margin: 8px 0 0;
+  padding-left: 1.3em;
+  line-height: 1.7;
+}
+.ads-steps code,
+.hr-dialog code {
+  font-size: 0.85em;
+  word-break: break-all;
 }

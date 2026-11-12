@@ -144,6 +144,15 @@ aws s3 cp dist-lyrsoft/robots.txt "s3://$BUCKET/robots.txt" --cache-control "pub
 aws s3 cp dist-lyrsoft/sitemap.xml "s3://$BUCKET/sitemap.xml" --cache-control "public,max-age=3600" --content-type "application/xml; charset=utf-8"
 aws s3 cp dist-lyrsoft/lyrchat-widget.js "s3://$BUCKET/lyrchat-widget.js" --cache-control "public,max-age=3600" --content-type "text/javascript; charset=utf-8"
 aws s3 cp dist-lyrsoft/chat/sw.js "s3://$BUCKET/chat/sw.js" --cache-control "public,max-age=0,must-revalidate" --content-type "text/javascript; charset=utf-8"
+# The Lyr Chat Android app, downloaded from the bar Android visitors see (lyrsoft/android-app.js).
+# Built with `npm run android:apk` in mobile/ (kept out of git); without a build the live APK stays as it is.
+APK=mobile/android/app/build/outputs/apk/release/app-release.apk
+if [ -f "$APK" ]; then
+  aws s3 cp "$APK" "s3://$BUCKET/download/lyrchat.apk" --cache-control "public,max-age=300" \
+    --content-type "application/vnd.android.package-archive" --content-disposition 'attachment; filename="LyrChat.apk"'
+else
+  echo "No Lyr Chat APK built (npm run android:apk in mobile/); leaving /download/lyrchat.apk as it is."
+fi
 aws s3 cp dist-lyrsoft/brand/lyrchat.webmanifest "s3://$BUCKET/brand/lyrchat.webmanifest" --cache-control "public,max-age=3600" --content-type "application/manifest+json"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" >/dev/null
 

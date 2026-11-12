@@ -18,6 +18,7 @@ import { WORK_API_BASE } from './config.js';
 import { ConversationView } from './conversation.js';
 import { createMeetings } from './meet.js';
 import { showSignIn } from './signin.js';
+import { APK_URL, inApp, isAndroid, showAndroidAppBar } from './android-app.js';
 
 const TOKENS_KEY = 'lyrcloud.auth.tokens';
 const KEEP_KEY = 'lyrchat.tokens';
@@ -847,7 +848,7 @@ function settingsHtml() {
     <div class="lc-settings">
       <section class="lc-card lc-me">${avatarHtml({ name: me.name, email: me.email, avatar: profile.avatar }, 'avatar lc-av big')}<div><b>${esc(me.name || me.email)}</b><small>${esc(me.email)}</small><small>${profile.phoneVerified ? `📱 ${esc(profile.phone)} · people can find you by this number` : '📱 <a href="/app/#/profile" target="_blank" rel="noopener">Verify your mobile number</a> so people can find you by it'}</small></div></section>
       <section class="lc-card"><h2>Notifications</h2>${pushRow}</section>
-      ${S.installEvent ? '<section class="lc-card"><h2>Install</h2><p>Add Lyr Chat to your home screen or desktop.</p><button class="btn small primary" data-act="install">⬇ Install Lyr Chat</button></section>' : ''}
+      ${isAndroid() && !inApp() ? `<section class="lc-card"><h2>Android app</h2><p>Get Lyr Chat as an app on this phone.</p><a class="btn small primary" href="${APK_URL}" download="LyrChat.apk">⬇ Download for Android</a><p class="muted">Open the downloaded file. If Android asks, allow your browser to install apps, then tap Install.</p></section>` : S.installEvent ? '<section class="lc-card"><h2>Install</h2><p>Add Lyr Chat to your home screen or desktop.</p><button class="btn small primary" data-act="install">⬇ Install Lyr Chat</button></section>' : ''}
       <section class="lc-card"><h2>Blocked people</h2>${S.blocked === null ? '<p class="muted">Loading…</p>' : S.blocked.length ? `<ul class="lc-blocked">${S.blocked.map((b) => `<li><span>${esc(b.name)}</span><button class="btn small" data-act="unblock" data-conv="${esc(b.conv)}">Unblock</button></li>`).join('')}</ul>` : '<p class="muted">No one. Block someone from the ⋮ menu in a chat.</p>'}</section>
       <section class="lc-card"><h2>More</h2>
         <p><a href="/app/#/contacts" target="_blank" rel="noopener">📇 Contacts</a> · <a href="/app/#/meetings" target="_blank" rel="noopener">📅 Scheduled meetings</a> · <a href="/app/" target="_blank" rel="noopener">Lyrsoft Work</a></p>
@@ -1306,6 +1307,7 @@ document.addEventListener('submit', async (event) => {
 });
 
 window.addEventListener('hashchange', route);
+showAndroidAppBar({ top: true });
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
   S.installEvent = event;

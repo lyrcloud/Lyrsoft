@@ -8,6 +8,7 @@
     "sync": "cap sync",
     "icons": "node make-icons.mjs && capacitor-assets generate --android --iconBackgroundColor '#6247ea' --splashBackgroundColor '#ffffff'",
     "android:debug": "cap sync android && cd android && ./gradlew assembleDebug",
+    "android:apk": "cap sync android && cd android && ./gradlew assembleRelease",
     "android:release": "cap sync android && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {

@@ -2,11 +2,13 @@
 // on the work API, which files the enquiry on the Website leads board and in the support@lyrsoft.com inbox).
 import { isLoggedIn, redirectToLogin } from './auth.js';
 import { WORK_API_BASE } from './config.js';
+import { showAndroidAppBar } from './android-app.js';
 
 // Lyrsoft Work used to live at the root; send old links like /#/w/... to the app.
 if (location.hash.startsWith('#/')) location.replace(`/app/${location.hash}`);
 
 document.getElementById('year').textContent = new Date().getFullYear();
+showAndroidAppBar();
 
 const toggle = document.querySelector('.nav-toggle');
 const links = document.querySelector('.nav-links');

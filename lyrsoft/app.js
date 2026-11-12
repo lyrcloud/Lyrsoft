@@ -10,6 +10,7 @@ import { createGrowth } from './growth.js';
 import { createFinance } from './finance.js';
 import { createOps } from './ops.js';
 import { createSeo } from './seo.js';
+import { createAds } from './ads.js';
 import { createUI, searchButton, themeButton } from './ui.js';
 import { createMeetings } from './meet.js';
 import { authFetch, getTokens, logout, redirectToLogin } from './auth.js';
@@ -119,6 +120,7 @@ function parseRoute() {
     if (parts[2] === 'b' && parts[3]) return { view: 'board', ws: parts[1], board: parts[3], params };
     if (parts[2] === 'team') return { view: 'team', ws: parts[1], params };
     if (parts[2] === 'ops') return { view: 'ops', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
+    if (parts[2] === 'ads') return { view: 'ads', ws: parts[1], params };
     if (parts[2] === 'seo') return { view: 'seo', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
     if (parts[2] === 'finance') return { view: 'finance', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
     if (parts[2] === 'growth') return { view: 'growth', ws: parts[1], tab: parts[3] || 'overview', id: parts[4] || null, params };
@@ -153,6 +155,7 @@ const marketing = createMarketing({ api, esc, toast, render: () => render(), go,
 const finance = createFinance({ api, esc, toast, render: () => render(), go });
 const ops = createOps({ api, esc, toast, render: () => render(), go });
 const seo = createSeo({ api, esc, toast, render: () => render(), go });
+const ads = createAds({ esc });
 const growth = createGrowth({ api, esc, toast, render: () => render(), go, formatDateTime });
 const hr = createHR({ api, esc, toast, render: () => render(), go, formatDateTime, getMe: () => state.me });
 // Everywhere the command palette (Ctrl/⌘ K) can jump to.
@@ -170,6 +173,7 @@ function paletteTargets() {
   const current = state.ws?.workspace.id;
   const workspaces = [...me.workspaces].sort((a, b) => (b.id === current) - (a.id === current));
   for (const w of workspaces) out.push({ group: 'Performance & maintenance', label: `Performance & maintenance · ${w.name}`, icon: '🩺', href: `#/w/${encodeURIComponent(w.id)}/ops` });
+  for (const w of workspaces) out.push({ group: 'Ad revenue', label: `Ad revenue · ${w.name}`, icon: '💰', href: `#/w/${encodeURIComponent(w.id)}/ads` });
   for (const w of workspaces) out.push({ group: 'SEO', label: `SEO · ${w.name}`, icon: '🔎', href: `#/w/${encodeURIComponent(w.id)}/seo` });
   for (const w of workspaces) out.push({ group: 'Costs & analytics', label: `Costs & analytics · ${w.name}`, icon: '📊', href: `#/w/${encodeURIComponent(w.id)}/finance` });
   for (const w of workspaces) out.push({ group: 'Ads & budget', label: `Ads & budget · ${w.name}`, icon: '📈', href: `#/w/${encodeURIComponent(w.id)}/growth` });
@@ -294,6 +298,7 @@ function sidebarHtml() {
               <a href="#/w/${esc(ws.workspace.id)}/growth"${route.view === 'growth' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📈</span>Ads &amp; budget</a>
               <a href="#/w/${esc(ws.workspace.id)}/finance"${route.view === 'finance' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">📊</span>Costs &amp; analytics</a>
               <a href="#/w/${esc(ws.workspace.id)}/ops"${route.view === 'ops' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">🩺</span>Performance &amp; maintenance</a>
+              <a href="#/w/${esc(ws.workspace.id)}/ads"${route.view === 'ads' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">💰</span>Ad revenue</a>
               <a href="#/w/${esc(ws.workspace.id)}/seo"${route.view === 'seo' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">🔎</span>SEO</a>
               <a href="#/w/${esc(ws.workspace.id)}/team"${route.view === 'team' ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">👥</span>Team &amp; settings</a>
             </nav>`
@@ -305,6 +310,7 @@ function sidebarHtml() {
                 <a href="#/w/${esc(workspaces[0].id)}/growth"><span class="nav-icon" aria-hidden="true">📈</span>Ads &amp; budget</a>
                 <a href="#/w/${esc(workspaces[0].id)}/finance"><span class="nav-icon" aria-hidden="true">📊</span>Costs &amp; analytics</a>
                 <a href="#/w/${esc(workspaces[0].id)}/ops"><span class="nav-icon" aria-hidden="true">🩺</span>Performance &amp; maintenance</a>
+                <a href="#/w/${esc(workspaces[0].id)}/ads"><span class="nav-icon" aria-hidden="true">💰</span>Ad revenue</a>
                 <a href="#/w/${esc(workspaces[0].id)}/seo"><span class="nav-icon" aria-hidden="true">🔎</span>SEO</a>
               </nav>`
             : ''
@@ -315,7 +321,7 @@ function sidebarHtml() {
     </aside>`;
 }
 
-const CRUMBS = { ops: 'Performance & maintenance', seo: 'SEO', lyrchat: 'Lyr Chat', profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing', hr: 'HR', growth: 'Ads & budget', finance: 'Costs & analytics' };
+const CRUMBS = { ops: 'Performance & maintenance', ads: 'Ad revenue', seo: 'SEO', lyrchat: 'Lyr Chat', profile: 'My profile', admin: 'Admin console', chat: 'Messages', meetings: 'Meetings', meet: 'Meeting', contacts: 'Contacts', marketing: 'Marketing', hr: 'HR', growth: 'Ads & budget', finance: 'Costs & analytics' };
 const crumb = () => (route.view.startsWith('mail') ? 'Mail' : CRUMBS[route.view] || state.ws?.workspace.name || 'Lyrsoft Work');
 
 function topbar() {
@@ -369,6 +375,8 @@ function render() {
             ? finance.view(route)
             : route.view === 'ops'
             ? ops.view(route)
+            : route.view === 'ads'
+            ? ads.view(route)
             : route.view === 'seo'
             ? seo.view(route)
           : isCollabView()
@@ -379,7 +387,7 @@ function render() {
     ${sidebar()}
     <div class="main">
       ${topbar()}
-      <main class="content${route.view === 'lyrchat' ? ' wide lyrchat-content' : ''}${['chat', 'contacts', 'marketing', 'hr', 'growth', 'finance', 'ops', 'seo', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
+      <main class="content${route.view === 'lyrchat' ? ' wide lyrchat-content' : ''}${['chat', 'contacts', 'marketing', 'hr', 'growth', 'finance', 'ops', 'ads', 'seo', 'mail', 'mailSettings'].includes(route.view) ? ' wide' : ''}">${meetings.banner()}${content}</main>
     </div>
     ${route.params.get('item') && state.board ? drawer() : ''}`;
   app.classList.remove('sidebar-open');
@@ -388,7 +396,7 @@ function render() {
   meetings.afterRender();
   ui.afterRender(location.hash.split('?')[0] || '#/');
   placeLyrChat();
-  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : route.view === 'hr' ? `HR · ${state.ws?.workspace.name || ''}` : route.view === 'growth' ? `Ads & budget · ${state.ws?.workspace.name || ''}` : route.view === 'finance' ? `Costs & analytics · ${state.ws?.workspace.name || ''}` : route.view === 'ops' ? `Performance & maintenance · ${state.ws?.workspace.name || ''}` : route.view === 'seo' ? `SEO · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
+  document.title = `${route.view.startsWith('mail') ? (route.mailbox || 'Mail') : isAccountView() || isCollabView() || route.view === 'contacts' ? crumb() : route.view === 'marketing' ? `Marketing · ${state.ws?.workspace.name || ''}` : route.view === 'hr' ? `HR · ${state.ws?.workspace.name || ''}` : route.view === 'growth' ? `Ads & budget · ${state.ws?.workspace.name || ''}` : route.view === 'finance' ? `Costs & analytics · ${state.ws?.workspace.name || ''}` : route.view === 'ops' ? `Performance & maintenance · ${state.ws?.workspace.name || ''}` : route.view === 'ads' ? `Ad revenue · ${state.ws?.workspace.name || ''}` : route.view === 'seo' ? `SEO · ${state.ws?.workspace.name || ''}` : state.board?.name || state.ws?.workspace.name || 'Workspaces'} | Lyrsoft Work`;
 }
 
 // ------------------------------------------------------------------ Lyr Chat inside Lyrsoft Work

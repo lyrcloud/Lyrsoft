@@ -64,6 +64,10 @@ Sign-in uses the Lyrcloud Cognito user pool: **Google**, or an **email and passw
 - **Maintenance:** planned windows (failures inside them don't alert or count against uptime), a recurring checklist (backups, updates, security, renewals, performance, content) that moves to its next due date when ticked off, and a work log.
 - **Who:** workspace owners and admins, and the people they add in its settings. Only owners and admins add or change monitors.
 
+## Ad revenue
+
+**Lyrsoft Ad revenue** (`/app/#/w/<workspace>/ads`, `lyrsoft/ads.js`), above SEO in the left bar, is a placeholder for earning from ads on a workspace's own sites (Google AdSense) and apps (Google AdMob). Nothing is connected yet. Spending on ads stays in Ads & budget.
+
 ## SEO
 
 **Lyrsoft SEO** (`/app/#/w/<workspace>/seo`, `lyrsoft/seo.js`, API in `api/work/seo.mjs`, rules in `api/work/seo-model.mjs`), after Performance & maintenance in the left bar, shows how search engines see a workspace's sites:

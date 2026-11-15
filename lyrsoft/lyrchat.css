@@ -792,3 +792,198 @@ body.lyrchat {
   color: inherit;
   font: inherit;
 }
+
+/* ---------------------------------------------------------------- line icons and motion */
+
+.lc-icon {
+  position: relative;
+  overflow: hidden;
+  color: var(--text);
+  transition: background 0.2s, color 0.2s, transform 0.15s;
+}
+
+.lc-icon .ico {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.lc-icon:hover:not(:disabled) {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.lc-icon:hover:not(:disabled) .ico {
+  transform: scale(1.12);
+}
+
+.lc-icon:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+/* The phone wiggles and the camera nudges, so call buttons feel alive. */
+.lc-icon[data-act^="call"]:not([data-act="call-delete"]):hover:not(:disabled) .ico {
+  animation: lc-wiggle 0.5s ease-in-out;
+}
+
+.lc-icon[data-act="call-delete"]:hover .ico {
+  color: #e5484d;
+}
+
+@keyframes lc-wiggle {
+  20% { transform: rotate(-14deg) scale(1.12); }
+  40% { transform: rotate(12deg) scale(1.12); }
+  60% { transform: rotate(-8deg) scale(1.12); }
+  80% { transform: rotate(5deg) scale(1.12); }
+  100% { transform: scale(1.12); }
+}
+
+.lc-tab {
+  overflow: hidden;
+  transition: color 0.2s;
+}
+
+.lc-tab-ico {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 30px;
+  border-radius: 999px;
+  transition: background 0.25s, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.lc-tab-ico .ico {
+  width: 22px;
+  height: 22px;
+}
+
+.lc-tab:hover .lc-tab-ico {
+  transform: translateY(-1px);
+}
+
+.lc-tab.on .lc-tab-ico {
+  background: var(--brand-tint);
+  animation: lc-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.lc-tab.on .lc-tab-ico .ico {
+  stroke-width: 2.3;
+}
+
+@keyframes lc-pop {
+  0% { transform: scale(0.8); }
+  100% { transform: scale(1); }
+}
+
+.lc-fab {
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--brand), #8b6bff);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.lc-fab .ico {
+  width: 24px;
+  height: 24px;
+}
+
+.lc-fab:hover {
+  transform: translateY(-2px) rotate(-4deg);
+  box-shadow: 0 10px 24px rgba(108, 92, 231, 0.4);
+}
+
+.lc-fab:active {
+  transform: scale(0.94);
+}
+
+.lc-pulse {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #1fbf75;
+  color: #fff;
+}
+
+.lc-pulse .ico {
+  width: 18px;
+  height: 18px;
+}
+
+.lc-join-icon .ico {
+  width: 56px;
+  height: 56px;
+  color: var(--brand);
+}
+
+/* Incoming call buttons: big round, with a breathing halo on Answer. */
+.lc-ring-btn span {
+  position: relative;
+  transition: transform 0.15s, filter 0.2s;
+}
+
+.lc-ring-btn span .ico {
+  width: 30px;
+  height: 30px;
+}
+
+.lc-ring-btn.decline span {
+  transform: none;
+  background: linear-gradient(135deg, #f05a5f, #c2263e);
+  box-shadow: 0 6px 20px rgba(229, 72, 77, 0.45);
+}
+
+.lc-ring-btn.answer span {
+  background: linear-gradient(135deg, #2bd98a, #13a862);
+  box-shadow: 0 6px 20px rgba(31, 191, 117, 0.45);
+}
+
+.lc-ring-btn:hover span {
+  filter: brightness(1.1);
+  transform: scale(1.06);
+}
+
+.lc-ring-btn:active span {
+  transform: scale(0.92);
+}
+
+.lc-ring-go::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(43, 217, 138, 0.6);
+  animation: lc-halo 1.6s ease-out infinite;
+}
+
+.lc-ring-go .ico {
+  animation: lc-wiggle 1.2s ease-in-out infinite;
+}
+
+@keyframes lc-halo {
+  to {
+    box-shadow: 0 0 0 22px rgba(43, 217, 138, 0);
+  }
+}
+
+.lc-sound .btn .ico {
+  width: 14px;
+  height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-icon .ico,
+  .lc-tab-ico,
+  .lc-ring-go::after,
+  .lc-ring-go .ico,
+  .lc-tab.on .lc-tab-ico {
+    animation: none !important;
+    transition: none;
+  }
+}
+
+.lc-tab .lc-tab-ico {
+  filter: none;
+  font-size: 1rem;
+  opacity: 1;
+}

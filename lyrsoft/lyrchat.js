@@ -14,6 +14,7 @@
 // (lyrchat-sw.js, served as /chat/sw.js) when it isn't.
 import { authFetch, clearTokens, exchangeCodeForTokens, getTokens, logout, redirectToLogin } from './auth.js';
 import { avatarHtml } from './avatar.js';
+import { icon, ripples } from './icons.js';
 import { WORK_API_BASE } from './config.js';
 import { ConversationView } from './conversation.js';
 import { createMeetings } from './meet.js';
@@ -649,18 +650,18 @@ function render() {
 const tabs = () => {
   const unread = (S.list?.unreadCount || 0) + (S.list?.requestCount || 0);
   const v = S.route.view;
-  const tab = (hash, icon, label, on, badge = '') => `<a class="lc-tab${on ? ' on' : ''}" href="${hash}"><span aria-hidden="true">${icon}</span>${label}${badge}</a>`;
+  const tab = (hash, ico, label, on, badge = '') => `<a class="lc-tab${on ? ' on' : ''}" href="${hash}"><span class="lc-tab-ico">${ico}</span>${label}${badge}</a>`;
   return `<nav class="lc-tabs">
-    ${S.me?.mailboxCount ? `<a class="lc-tab" href="/app/#/mail" title="Your team’s mailboxes in Lyrsoft Mail"><span aria-hidden="true">✉️</span>Mail</a>` : ''}
-    ${tab('#/', '💬', 'Chats', ['chats', 'chat', 'requests', 'new', 'group'].includes(v), unread ? `<b class="lc-badge">${unread}</b>` : '')}
-    ${tab('#/contacts', '👤', 'Contacts', v === 'contacts', S.matches.size ? `<b class="lc-badge soft">${S.matches.size}</b>` : '')}
-    ${tab('#/calls', '📞', 'Calls', v === 'calls')}
-    ${tab('#/settings', '⚙️', 'Settings', v === 'settings')}
+    ${S.me?.mailboxCount ? `<a class="lc-tab" href="/app/#/mail" title="Your team’s mailboxes in Lyrsoft Mail"><span class="lc-tab-ico">${icon('mail')}</span>Mail</a>` : ''}
+    ${tab('#/', icon('chat'), 'Chats', ['chats', 'chat', 'requests', 'new', 'group'].includes(v), unread ? `<b class="lc-badge">${unread}</b>` : '')}
+    ${tab('#/contacts', icon('user'), 'Contacts', v === 'contacts', S.matches.size ? `<b class="lc-badge soft">${S.matches.size}</b>` : '')}
+    ${tab('#/calls', icon('phone'), 'Calls', v === 'calls')}
+    ${tab('#/settings', icon('settings'), 'Settings', v === 'settings')}
   </nav>`;
 };
 
 function sideHead(title, actions = '', back = '') {
-  return `<header class="lc-head">${back ? `<a class="lc-icon" href="${back}" aria-label="Back">←</a>` : ''}<h1>${title}</h1><div class="lc-head-actions">${actions}</div></header>`;
+  return `<header class="lc-head">${back ? `<a class="lc-icon" href="${back}" aria-label="Back">${icon('back')}</a>` : ''}<h1>${title}</h1><div class="lc-head-actions">${actions}</div></header>`;
 }
 
 function renderSide() {
@@ -701,10 +702,10 @@ function chatsListHtml() {
 }
 
 function chatsHtml() {
-  return `${sideHead('Lyr Chat', `<a class="lc-icon" href="#/group" title="New group" aria-label="New group">👥</a><a class="lc-icon" href="#/new" title="New chat" aria-label="New chat">✎</a>`)}
+  return `${sideHead('Lyr Chat', `<a class="lc-icon" href="#/group" title="New group" aria-label="New group">${icon('users')}</a><a class="lc-icon" href="#/new" title="New chat" aria-label="New chat">${icon('edit')}</a>`)}
     <div class="lc-search"><input type="search" placeholder="Search chats" value="${esc(S.search)}" data-input="search" aria-label="Search chats" /></div>
     <div class="lc-list">${chatsListHtml()}</div>
-    <a class="lc-fab" href="#/new" aria-label="New chat">✎</a>`;
+    <a class="lc-fab" href="#/new" aria-label="New chat">${icon('edit')}</a>`;
 }
 
 function patchList() {
@@ -765,7 +766,7 @@ function contactRow(c) {
   return `<div class="lc-row lc-contact">
     <button class="lc-call-open" data-act="${m ? 'chat-contact' : 'invite-contact'}" data-id="${esc(c.id)}">${avatarHtml({ name: c.name }, 'avatar lc-av')}<span class="lc-row-main"><b>${esc(c.name)}</b><small>${esc(sub)}</small></span></button>
     ${m
-      ? `<button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="0" aria-label="Voice call ${esc(c.name)}">📞</button><button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="1" aria-label="Video call ${esc(c.name)}">📹</button>`
+      ? `<button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="0" aria-label="Voice call ${esc(c.name)}">${icon('phone')}</button><button class="lc-icon" data-act="call-contact" data-id="${esc(c.id)}" data-video="1" aria-label="Video call ${esc(c.name)}">${icon('video')}</button>`
       : `<button class="btn small" data-act="invite-contact" data-id="${esc(c.id)}">Invite</button>`}
   </div>`;
 }
@@ -786,7 +787,7 @@ function contactsListHtml() {
 }
 
 function contactsHtml() {
-  return `${sideHead('Contacts', '<a class="lc-icon" href="/app/#/contacts" target="_blank" rel="noopener" title="Import contacts" aria-label="Import contacts">📇</a><button class="lc-icon" data-act="add-contact" title="New contact" aria-label="New contact">＋</button>')}
+  return `${sideHead('Contacts', `<a class="lc-icon" href="/app/#/contacts" target="_blank" rel="noopener" title="Import contacts" aria-label="Import contacts">${icon('contacts')}</a><button class="lc-icon" data-act="add-contact" title="New contact" aria-label="New contact">${icon('plus')}</button>`)}
     <div class="lc-search"><input type="search" placeholder="Search contacts" value="${esc(S.contactQuery)}" data-input="contact-search" aria-label="Search contacts" /></div>
     <p class="lc-note">From your Lyrsoft Contacts. People who are on Lyrsoft (by email, or by a mobile number they verified) appear automatically.</p>
     <div class="lc-list lc-contacts">${contactsListHtml()}</div>`;
@@ -916,12 +917,12 @@ function callsHtml() {
       return `<div class="lc-row lc-call${c.missed ? ' missed' : ''}">
         <a class="lc-call-open" href="#/chat/${encodeURIComponent(c.conv)}">${c.convType === 'group' ? '<span class="avatar lc-av group" aria-hidden="true">👥</span>' : avatarHtml({ name: c.title }, 'avatar lc-av')}
         <span class="lc-row-main"><b>${esc(c.title)}</b><small>${arrow} ${what} ${c.video ? 'video' : 'voice'} · ${esc(timeOf(c.startedAt))}${c.durationSec ? ` · ${durationText(c.durationSec)}` : ''}</small></span></a>
-        <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="0" aria-label="Voice call">📞</button>
-        <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="1" aria-label="Video call">📹</button>
-        ${admin ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" aria-label="Remove from call history" title="Remove from my history">🗑</button>` : ''}
-        ${role === 'superadmin' ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" data-everyone="1" aria-label="Delete for everyone" title="Delete for everyone">⛔</button>` : ''}
+        <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="0" aria-label="Voice call">${icon('phone')}</button>
+        <button class="lc-icon" data-act="call" data-conv="${esc(c.conv)}" data-video="1" aria-label="Video call">${icon('video')}</button>
+        ${admin ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" aria-label="Remove from call history" title="Remove from my history">${icon('trash')}</button>` : ''}
+        ${role === 'superadmin' ? `<button class="lc-icon" data-act="call-delete" data-id="${esc(c.id)}" data-everyone="1" aria-label="Delete for everyone" title="Delete for everyone">${icon('ban')}</button>` : ''}
       </div>`;
-    }).join('') || '<div class="lc-empty"><p>No calls yet. Open a chat and tap 📞 or 📹.</p></div>'}</div>`;
+    }).join('') || '<div class="lc-empty"><p>No calls yet. Open a chat and tap the phone or camera button.</p></div>'}</div>`;
 }
 
 function settingsHtml() {
@@ -944,7 +945,7 @@ function settingsHtml() {
       <section class="lc-card lc-sounds"><h2>Sounds</h2>
         ${[['ring', 'Ringtone', RINGTONES], ['tone', 'Message tone', MESSAGE_TONES]].map(([kind, label, list]) => `<label class="lc-sound"><span>${label}</span>
           <select data-sound="${kind}">${list.map(([id, name]) => `<option value="${id}"${sounds.get(kind) === id ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>
-          <button type="button" class="btn small" data-act="sound-play" data-kind="${kind}" aria-label="Play ${label.toLowerCase()}">▶</button></label>`).join('')}
+          <button type="button" class="btn small" data-act="sound-play" data-kind="${kind}" aria-label="Play ${label.toLowerCase()}">${icon('play')}</button></label>`).join('')}
         <p class="muted">${Native ? 'Used for calls and messages, also when Lyr Chat is closed.' : 'Used while Lyr Chat is open. When it’s closed, your browser plays its own notification sound.'}</p>
       </section>
       ${isAndroid() && !inApp() ? `<section class="lc-card"><h2>Android app</h2><p>Get Lyr Chat as an app on this phone.</p><a class="btn small primary" href="${APK_URL}" download="LyrChat.apk">⬇ Download for Android</a><p class="muted">Open the downloaded file. If Android asks, allow your browser to install apps, then tap Install.</p></section>` : S.installEvent ? '<section class="lc-card"><h2>Install</h2><p>Add Lyr Chat to your home screen or desktop.</p><button class="btn small primary" data-act="install">⬇ Install Lyr Chat</button></section>' : ''}
@@ -981,7 +982,7 @@ function convHeadHtml(id) {
   const sub = c.type === 'group' ? `${c.members} members` : c.type === 'ws' ? 'Team channel' : view?.activeText() || '';
   const avatar = c.type === 'group' ? '<span class="avatar lc-av group" aria-hidden="true">👥</span>' : c.type === 'ws' ? '<span class="avatar lc-av group" aria-hidden="true">🏢</span>' : avatarHtml({ name: c.title }, 'avatar lc-av');
   const callButtons = ['dm', 'group'].includes(c.type)
-    ? `<button class="lc-icon" data-act="call" data-conv="${esc(id)}" data-video="0"${c.canCall ? '' : ' disabled'} title="${c.canCall ? 'Voice call' : 'Calls work once they accept your request'}" aria-label="Voice call">📞</button><button class="lc-icon" data-act="call" data-conv="${esc(id)}" data-video="1"${c.canCall ? '' : ' disabled'} title="${c.canCall ? 'Video call' : 'Calls work once they accept your request'}" aria-label="Video call">📹</button>`
+    ? `<button class="lc-icon" data-act="call" data-conv="${esc(id)}" data-video="0"${c.canCall ? '' : ' disabled'} title="${c.canCall ? 'Voice call' : 'Calls work once they accept your request'}" aria-label="Voice call">${icon('phone')}</button><button class="lc-icon" data-act="call" data-conv="${esc(id)}" data-video="1"${c.canCall ? '' : ' disabled'} title="${c.canCall ? 'Video call' : 'Calls work once they accept your request'}" aria-label="Video call">${icon('video')}</button>`
     : '';
   const menu = S.menu
     ? `<div class="lc-menu" role="menu">
@@ -991,8 +992,8 @@ function convHeadHtml(id) {
         <a href="/app/#/chat/${encodeURIComponent(id)}" target="_blank" rel="noopener">Open in Lyrsoft Work</a>
       </div>`
     : '';
-  return `<a class="lc-icon lc-back" href="#/" aria-label="Back">←</a>${avatar}<div class="lc-conv-title"><b>${esc(c.title)}</b><small>${esc(sub)}</small></div>
-    <div class="lc-head-actions">${callButtons}<button class="lc-icon" data-act="menu" aria-label="More">⋮</button>${menu}</div>`;
+  return `<a class="lc-icon lc-back" href="#/" aria-label="Back">${icon('back')}</a>${avatar}<div class="lc-conv-title"><b>${esc(c.title)}</b><small>${esc(sub)}</small></div>
+    <div class="lc-head-actions">${callButtons}<button class="lc-icon" data-act="menu" aria-label="More">${icon('more')}</button>${menu}</div>`;
 }
 
 function requestBarHtml(id) {
@@ -1046,7 +1047,7 @@ function renderMain() {
   if (old && !old.el?.closest('#call-root')) old.unmount();
   delete main.dataset.conv;
   if (view === 'meet') {
-    main.innerHTML = `<div class="lc-empty lc-join"><span class="lc-join-icon" aria-hidden="true">📹</span><h2>Join the call</h2><p class="muted">Your browser will ask for your microphone and camera.</p>
+    main.innerHTML = `<div class="lc-empty lc-join"><span class="lc-join-icon" aria-hidden="true">${icon('video')}</span><h2>Join the call</h2><p class="muted">Your browser will ask for your microphone and camera.</p>
       <div class="lc-invite-buttons"><button class="btn primary big" data-act="join" data-meeting="${esc(S.route.meetingId)}" data-video="0">📞 Join with audio</button><button class="btn big" data-act="join" data-meeting="${esc(S.route.meetingId)}" data-video="1">📹 Join with video</button></div>
       <a class="btn ghost" href="#/">Back to chats</a></div>`;
     return;
@@ -1069,7 +1070,7 @@ function renderCalling() {
   if (!node) return;
   const out = S.outgoing;
   node.hidden = !out;
-  node.innerHTML = out ? `<span class="lc-pulse" aria-hidden="true">${out.call.video ? '📹' : '📞'}</span><span>Calling <b>${esc(out.title)}</b>… <small>Ringing</small></span><button class="btn small danger" data-act="cancel-call">End</button>` : '';
+  node.innerHTML = out ? `<span class="lc-pulse" aria-hidden="true">${icon(out.call.video ? 'video' : 'phone')}</span><span>Calling <b>${esc(out.title)}</b>… <small>Ringing</small></span><button class="btn small danger" data-act="cancel-call">End</button>` : '';
 }
 
 function renderRing() {
@@ -1085,9 +1086,9 @@ function renderRing() {
       <p class="lc-ring-what">Incoming ${call.video ? 'video' : 'voice'} call${group ? ` · ${esc(call.title)}` : ''}</p>
       <h2>${esc(call.from)}</h2>
       <div class="lc-ring-buttons">
-        <button class="lc-ring-btn decline" data-act="decline-call" aria-label="Decline"><span>📞</span>Decline</button>
-        ${call.video ? '<button class="lc-ring-btn answer" data-act="answer-call" data-video="0" aria-label="Answer with audio"><span>📞</span>Audio</button>' : ''}
-        <button class="lc-ring-btn answer" data-act="answer-call" data-video="${call.video ? '1' : '0'}" aria-label="Answer"><span>${call.video ? '📹' : '📞'}</span>${call.video ? 'Video' : 'Answer'}</button>
+        <button class="lc-ring-btn decline" data-act="decline-call" aria-label="Decline"><span>${icon('hangup')}</span>Decline</button>
+        ${call.video ? `<button class="lc-ring-btn answer" data-act="answer-call" data-video="0" aria-label="Answer with audio"><span>${icon('phone')}</span>Audio</button>` : ''}
+        <button class="lc-ring-btn answer" data-act="answer-call" data-video="${call.video ? '1' : '0'}" aria-label="Answer"><span class="lc-ring-go">${icon(call.video ? 'video' : 'phone')}</span>${call.video ? 'Video' : 'Answer'}</button>
       </div>
     </div>`;
 }
@@ -1417,6 +1418,7 @@ document.addEventListener('submit', async (event) => {
 
 window.addEventListener('hashchange', route);
 showAndroidAppBar({ top: true });
+ripples();
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
   S.installEvent = event;

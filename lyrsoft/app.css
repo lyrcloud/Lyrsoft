@@ -7864,3 +7864,154 @@ td .gr-bar {
   font-size: 0.85em;
   word-break: break-all;
 }
+
+/* ------------------------------------------------------------ line icons (icons.js), ripples, call buttons */
+
+.ico {
+  display: block;
+  width: 1.2em;
+  height: 1.2em;
+  flex: none;
+}
+
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.22;
+  pointer-events: none;
+  transform: scale(0);
+  animation: ripple 0.6s ease-out forwards;
+}
+
+@keyframes ripple {
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.call-btn {
+  gap: 4px;
+  min-width: 72px;
+  padding: 10px 10px 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.call-btn .ico {
+  width: 24px;
+  height: 24px;
+  transition: transform 0.2s;
+}
+
+.call-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.call-btn:hover .ico {
+  transform: translateY(-2px) scale(1.08);
+}
+
+.call-btn:active:not(:disabled) {
+  transform: scale(0.93);
+}
+
+.call-btn.off {
+  background: #f1f0ff;
+  color: #1c1d2e;
+}
+
+.call-btn.active {
+  background: linear-gradient(135deg, #6c5ce7, #8b6bff);
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.45);
+}
+
+.call-btn.leave {
+  background: linear-gradient(135deg, #e5484d, #c2263e);
+  box-shadow: 0 4px 16px rgba(229, 72, 77, 0.4);
+}
+
+.call-btn.leave:hover {
+  background: linear-gradient(135deg, #f05a5f, #d0263e);
+}
+
+.call-btn.leave:hover .ico {
+  transform: rotate(-12deg) scale(1.1);
+}
+
+.call-min .ico {
+  width: 18px;
+  height: 18px;
+}
+
+/* Switch camera, on your own picture (top right), like a phone camera app. */
+.tile-flip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(10, 10, 25, 0.45);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.tile-flip[hidden] {
+  display: none;
+}
+
+.tile-flip .ico {
+  width: 22px;
+  height: 22px;
+}
+
+.tile-flip:hover {
+  background: rgba(10, 10, 25, 0.7);
+  transform: scale(1.08);
+}
+
+.tile-flip:active {
+  transform: scale(0.92);
+}
+
+.tile-flip.spin .ico {
+  animation: flip-turn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes flip-turn {
+  to {
+    transform: rotateY(180deg) rotate(180deg);
+  }
+}
+
+#call-root.minimized .tile-flip {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .call-btn {
+    min-width: 56px;
+    padding: 9px 8px 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-btn,
+  .call-btn .ico,
+  .tile-flip,
+  .tile-flip.spin .ico {
+    transition: none;
+    animation: none;
+  }
+}

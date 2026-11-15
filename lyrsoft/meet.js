@@ -10,10 +10,12 @@
 // screen, window or tab you pick, with your microphone and the call's audio, and saves a .webm file
 // on your device. Nothing is uploaded.
 import { attachInviteeField, inviteeField, pickPeople } from './people.js';
+import { icon, ripples } from './icons.js';
 
 // Lyr Chat (lyrchat.js) uses the same call room: `onCallChange(info | null)` hears when people join or
 // the call ends, and `callRoute: false` keeps the address as it is while in a call.
 export function createMeetings({ api, esc, toast, render, go, initial, formatDateTime, getMe, dialog, chat, onCallChange = () => {}, callRoute = true }) {
+  ripples();
   const meet = { list: null, lobby: null, scheduling: false };
   let call = null; // the active call (see joinCall)
   let recorder = null; // the active recording (see startRecording)
@@ -169,7 +171,7 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         <div class="call" role="dialog" aria-label="Video call">
           <header class="call-head">
             <b class="call-title"></b><span class="call-status muted"></span><span class="rec-indicator" hidden>● REC <span class="rec-time">0:00</span></span>
-            <button class="icon-btn call-min" data-call="minimize" title="Minimize">▁</button>
+            <button class="icon-btn call-min" data-call="minimize" title="Minimize" aria-label="Minimize">${icon('minimize')}</button>
           </header>
           <div class="call-body">
             <div class="call-stage"><div class="call-content" hidden></div><div class="call-grid"></div></div>
@@ -181,13 +183,12 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
           <footer class="call-controls">
             <button class="call-btn" data-call="mic"></button>
             <button class="call-btn" data-call="camera"></button>
-            <button class="call-btn" data-call="flip" hidden>🔄<span>Flip</span></button>
             <button class="call-btn" data-call="speaker"></button>
             <button class="call-btn" data-call="share"></button>
             <button class="call-btn" data-call="record"></button>
-            <button class="call-btn" data-call="chat">💬<span>Chat</span></button>
-            <button class="call-btn" data-call="invite">🔗<span>Invite</span></button>
-            <button class="call-btn leave" data-call="leave">✆<span>Leave</span></button>
+            <button class="call-btn" data-call="chat">${icon('chat')}<span>Chat</span></button>
+            <button class="call-btn" data-call="invite">${icon('link')}<span>Invite</span></button>
+            <button class="call-btn leave" data-call="leave">${icon('hangup')}<span>Leave</span></button>
           </footer>
           <audio class="call-audio" autoplay></audio>
         </div>`;
@@ -202,19 +203,18 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
       button.classList.toggle('off', !on);
       button.disabled = disabled;
     };
-    set('mic', !call.muted, 'Mute', 'Unmute', '🎙', '🔇');
-    set('camera', call.camera, 'Stop video', 'Start video', '📷', '🚫');
-    set('speaker', call.speaker, 'Speaker on', 'Speaker', '🔊', '🔈');
+    set('mic', !call.muted, 'Mute', 'Unmute', icon('mic'), icon('micOff'));
+    set('camera', call.camera, 'Stop video', 'Start video', icon('video'), icon('videoOff'));
+    set('speaker', call.speaker, 'Speaker on', 'Speaker', icon('speaker'), icon('speakerLow'));
     root.querySelector('[data-call="speaker"]').classList.toggle('active', Boolean(call.speaker));
-    // Flip shows while the camera is on and there's more than one camera (phones), or the count isn't known yet.
-    root.querySelector('[data-call="flip"]').hidden = !call.camera || call.cameraCount === 1;
-    set('share', call.sharing, 'Stop sharing', 'Share screen', '🖥', '🖥', !navigator.mediaDevices?.getDisplayMedia);
-    set('record', Boolean(recorder), 'Stop recording', 'Record', '⏹', '⏺', !canRecord());
+    showFlip();
+    set('share', call.sharing, 'Stop sharing', 'Share screen', icon('screen'), icon('screen'), !navigator.mediaDevices?.getDisplayMedia);
+    set('record', Boolean(recorder), 'Stop recording', 'Record', icon('stop'), icon('record'), !canRecord());
     root.querySelector('[data-call="share"]').classList.toggle('active', call.sharing);
     root.querySelector('[data-call="record"]').classList.toggle('active', Boolean(recorder));
     const chatButton = root.querySelector('.call-controls [data-call="chat"]');
     chatButton.classList.toggle('active', call.chatOpen);
-    chatButton.innerHTML = `💬<span>Chat</span>${call.chatUnread && !call.chatOpen ? `<b class="call-badge">${call.chatUnread}</b>` : ''}`;
+    chatButton.innerHTML = `${icon('chat')}<span>Chat</span>${call.chatUnread && !call.chatOpen ? `<b class="call-badge">${call.chatUnread}</b>` : ''}`;
     chatButton.hidden = !call.conv;
     root.querySelector('.call-chat').hidden = !call.chatOpen;
     root.querySelector('.call').classList.toggle('chat-open', call.chatOpen);
@@ -236,6 +236,8 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
         tile.className = 'call-tile';
         tile.dataset.attendee = person.attendeeId;
         tile.innerHTML = '<video autoplay playsinline muted></video><span class="tile-avatar"></span><span class="tile-name"></span>';
+        // Flip sits on your own picture, like a phone camera's switch button.
+        if (person.local) tile.insertAdjacentHTML('beforeend', `<button class="tile-flip" data-call="flip" title="Switch camera" aria-label="Switch between front and rear camera" hidden>${icon('flip')}</button>`);
         grid.append(tile);
       }
       tile.querySelector('.tile-avatar').textContent = initial(person.name);
@@ -246,8 +248,14 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
     for (const tile of grid.querySelectorAll('.call-tile')) {
       if (!call.people.has(tile.dataset.attendee)) tile.remove();
     }
+    showFlip();
     content.hidden = !call.contentTileId;
     root.querySelector('.call-stage').classList.toggle('with-content', Boolean(call.contentTileId));
+  }
+
+  // Flip shows while the camera is on and there's more than one camera (phones), or the count isn't known yet.
+  function showFlip() {
+    for (const b of callRoot().querySelectorAll('[data-call="flip"]')) b.hidden = !call?.camera || call.cameraCount === 1;
   }
 
   // The chat panel stays mounted (hidden) for the whole call, so new messages count up on the button.
@@ -509,6 +517,10 @@ export function createMeetings({ api, esc, toast, render, go, initial, formatDat
   // Switches between the front and rear camera while the video keeps going.
   async function flipCamera() {
     if (!call.camera) return;
+    const button = callRoot().querySelector('.tile-flip');
+    button?.classList.remove('spin');
+    void button?.offsetWidth; // restart the turn animation
+    button?.classList.add('spin');
     try {
       await startCamera(call.facing === 'environment' ? 'user' : 'environment');
       toast(call.facing === 'environment' ? 'Rear camera' : 'Front camera');

@@ -151,12 +151,17 @@ test('FCM messages for the phone apps', async () => {
   const call = fcmMessage('tok', { type: 'call', title: 'Incoming voice call', body: 'Ada', tag: 'call-1', callId: 'c1', url: '/chat/#/call/c1', video: false, token: 'secret', email: 'b@y.com' }, { ttl: 45, urgency: 'high' }).message;
   assert.equal(call.android.priority, 'HIGH');
   assert.equal(call.android.ttl, '45s');
-  assert.equal(call.android.notification.channel_id, 'calls');
-  assert.deepEqual(call.data, { type: 'call', url: '/chat/#/call/c1', callId: 'c1', tag: 'call-1', video: 'false' });
+  assert.equal(call.notification, undefined);
+  assert.deepEqual(call.data, { type: 'call', url: '/chat/#/call/c1', callId: 'c1', tag: 'call-1', video: 'false', title: 'Incoming voice call', body: 'Ada', email: 'b@y.com', token: 'secret' });
+  assert.equal(call.apns.payload.aps.alert.title, 'Incoming voice call');
   const end = fcmMessage('tok', { type: 'call-end', callId: 'c1', tag: 'call-1' }).message;
-  assert.equal(end.notification, undefined);
-  assert.ok(fcmMessage('tok', { type: 'call-end', missed: true, title: 'Missed voice call', tag: 'call-1' }).message.notification);
-  assert.equal(fcmMessage('tok', { type: 'message', title: 'Ada', body: 'Hi', tag: 'conv-x' }).message.android.notification.channel_id, 'messages');
+  assert.equal(end.data.title, undefined);
+  assert.equal(end.apns.payload.aps['content-available'], 1);
+  assert.equal(fcmMessage('tok', { type: 'call-end', missed: true, title: 'Missed voice call', tag: 'call-1' }).message.data.title, 'Missed voice call');
+  const msg = fcmMessage('tok', { type: 'message', title: 'Ada', body: 'Hi', tag: 'conv-x', email: 'b@y.com', token: 'nope' }).message;
+  assert.equal(msg.android.priority, 'HIGH');
+  assert.equal(msg.data.body, 'Hi');
+  assert.equal(msg.data.token, undefined);
   assert.throws(() => cleanNativeToken('x'), /device token/);
 });
 

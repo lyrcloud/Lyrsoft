@@ -49,6 +49,8 @@ for (const [source, target] of Object.entries(pages)) {
 // Logo, favicons and web manifest (lyrsoft/brand/) are served from /brand/, with /favicon.ico at the root.
 await cp(join('lyrsoft', 'brand'), join(OUT, 'brand'), { recursive: true });
 await copyFile(join('lyrsoft', 'brand', 'favicon.ico'), join(OUT, 'favicon.ico'));
+// Lyr Chat's ringtones and message tones (made by scripts/make-lyrchat-sounds.mjs), served from /sounds/.
+await cp(join('lyrsoft', 'sounds'), join(OUT, 'sounds'), { recursive: true });
 // Search engines: crawl rules and the list of public pages.
 await copyFile(join('lyrsoft', 'robots.txt'), join(OUT, 'robots.txt'));
 await copyFile(join('lyrsoft', 'sitemap.xml'), join(OUT, 'sitemap.xml'));

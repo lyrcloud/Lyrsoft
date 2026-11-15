@@ -20,6 +20,17 @@ public class LyrAppPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("firebase", id != 0);
         result.put("version", BuildConfig.VERSION_NAME);
+        result.put("sounds", true);
         call.resolve(result);
+    }
+
+    /** The ringtone and message tone picked in Lyr Chat's Settings, for notifications while it's closed. */
+    @PluginMethod
+    public void setSounds(PluginCall call) {
+        LyrNotifications.prefs(getContext()).edit()
+            .putString("ring", LyrNotifications.pick(call.getString("ring"), LyrNotifications.RINGTONES))
+            .putString("tone", LyrNotifications.pick(call.getString("tone"), LyrNotifications.TONES))
+            .apply();
+        call.resolve();
     }
 }

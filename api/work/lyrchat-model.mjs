@@ -244,18 +244,20 @@ export const cleanNativeToken = (token) => {
 };
 
 export function fcmMessage(token, p, { ttl = 3600, urgency = 'normal' } = {}) {
-  const call = p.type === 'call';
-  const data = Object.fromEntries(Object.entries({ type: p.type, url: p.url, conv: p.conv, callId: p.callId, tag: p.tag, video: p.video, missed: p.missed })
+  const visible = Boolean(p.title && (p.type !== 'call-end' || p.missed));
+  // Android gets data only: the app shows the notification itself (calls full screen, ringing with the
+  // ringtone picked in Settings until answered, declined or ended), also while Lyr Chat is closed.
+  const data = Object.fromEntries(Object.entries({
+    type: p.type, url: p.url, conv: p.conv, callId: p.callId, tag: p.tag, video: p.video, missed: p.missed,
+    title: visible ? String(p.title).slice(0, 200) : '', body: visible ? String(p.body || '').slice(0, 500) : '',
+    email: p.type === 'call' ? p.email : '', token: p.type === 'call' ? p.token : '',
+  })
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
     .map(([k, v]) => [k, String(v)]));
-  const message = { token, data, android: { priority: urgency === 'high' ? 'HIGH' : 'NORMAL', ttl: `${Math.max(0, Math.round(ttl))}s` } };
-  const visible = p.title && (p.type !== 'call-end' || p.missed);
-  if (visible) {
-    message.notification = { title: String(p.title).slice(0, 200), body: String(p.body || '').slice(0, 500) };
-    message.android.notification = { tag: p.tag || undefined, channel_id: call ? 'calls' : 'messages', default_sound: true, ...(call ? { visibility: 'PUBLIC', notification_priority: 'PRIORITY_MAX' } : {}) };
-    message.apns = { headers: { 'apns-priority': urgency === 'high' ? '10' : '5' }, payload: { aps: { sound: 'default', 'thread-id': p.tag || 'lyrchat' } } };
-  } else {
-    message.apns = { headers: { 'apns-priority': '5', 'apns-push-type': 'background' }, payload: { aps: { 'content-available': 1 } } };
-  }
+  // Calls and messages are delivered straight away, even when the phone is idle.
+  const message = { token, data, android: { priority: urgency === 'high' || p.type === 'message' ? 'HIGH' : 'NORMAL', ttl: `${Math.max(0, Math.round(ttl))}s` } };
+  message.apns = visible
+    ? { headers: { 'apns-priority': urgency === 'high' ? '10' : '5' }, payload: { aps: { alert: { title: data.title, body: data.body || '' }, sound: 'default', 'thread-id': p.tag || 'lyrchat' } } }
+    : { headers: { 'apns-priority': '5', 'apns-push-type': 'background' }, payload: { aps: { 'content-available': 1 } } };
   return { message };
 }

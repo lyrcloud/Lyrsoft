@@ -171,9 +171,33 @@ const meetings = createMeetings({
   onCallChange,
 });
 
+// Ringtones and message tones (lyrsoft/sounds/, made by scripts/make-lyrchat-sounds.mjs). The choice is
+// kept on this device; the phone app gets it too (LyrApp.setSounds) so its notifications use it while
+// Lyr Chat is closed.
+const RINGTONES = [['marimba', 'Marimba'], ['classic', 'Classic'], ['bells', 'Bells'], ['harp', 'Harp'], ['pulse', 'Pulse'], ['sunrise', 'Sunrise']];
+const MESSAGE_TONES = [['pop', 'Pop'], ['ding', 'Ding'], ['bubble', 'Bubble'], ['glass', 'Glass'], ['chord', 'Chord'], ['marimba', 'Marimba'], ['none', 'None (silent)']];
+const sounds = {
+  get(kind) {
+    const list = kind === 'ring' ? RINGTONES : MESSAGE_TONES;
+    let id = null;
+    try {
+      id = localStorage.getItem(`lc-sound-${kind}`);
+    } catch {}
+    return list.some(([v]) => v === id) ? id : list[0][0];
+  },
+  set(kind, id) {
+    try {
+      localStorage.setItem(`lc-sound-${kind}`, id);
+    } catch {}
+    Native?.LyrApp?.setSounds?.({ ring: sounds.get('ring'), tone: sounds.get('tone') }).catch(() => {});
+  },
+};
+
 const ringer = (() => {
   let ctx = null;
   let timer = null;
+  let source = null;
+  const buffers = new Map();
   const unlock = () => {
     try {
       ctx ??= new (window.AudioContext || window.webkitAudioContext)();
@@ -181,6 +205,30 @@ const ringer = (() => {
     } catch {}
   };
   for (const type of ['pointerdown', 'keydown', 'touchstart']) addEventListener(type, unlock, { passive: true });
+  const load = (file) => {
+    if (!buffers.has(file)) {
+      buffers.set(file, fetch(`/sounds/${file}.wav`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => {
+        buffers.delete(file);
+        return null;
+      }));
+    }
+    return buffers.get(file);
+  };
+  // Plays a sound file; resolves false if it couldn't (no audio yet, or the file didn't load).
+  const play = async (file, { loop = false, volume = 0.9 } = {}) => {
+    if (!ctx || ctx.state !== 'running') return false;
+    const buffer = await load(file);
+    if (!buffer) return false;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    gain.connect(ctx.destination);
+    const node = ctx.createBufferSource();
+    node.buffer = buffer;
+    node.loop = loop;
+    node.connect(gain);
+    node.start();
+    return node;
+  };
   const tone = (freqs, seconds) => {
     if (!ctx || ctx.state !== 'running') return;
     const t = ctx.currentTime;
@@ -198,22 +246,45 @@ const ringer = (() => {
       osc.stop(t + seconds);
     }
   };
+  let session = 0;
   const stop = () => {
+    session++;
     clearInterval(timer);
     timer = null;
+    try {
+      source?.stop();
+    } catch {}
+    source = null;
     navigator.vibrate?.(0);
   };
   return {
-    // Incoming: two quick trills and a buzz every 2.5 s.
-    ring() {
+    // Incoming: the chosen ringtone on a loop, with a buzz every 2.5 s.
+    async ring() {
       stop();
-      const once = () => {
-        tone([880, 1320], 0.35);
-        setTimeout(() => tone([880, 1320], 0.35), 480);
-        navigator.vibrate?.([400, 200, 400]);
-      };
-      once();
-      timer = setInterval(once, 2500);
+      // In the background the phone app's own call notification rings (LyrMessagingService).
+      if (Native && document.hidden && S.push === 'granted') return;
+      const mine = session;
+      navigator.vibrate?.([400, 200, 400]);
+      timer = setInterval(() => navigator.vibrate?.([400, 200, 400]), 2500);
+      const node = await play(`ring_${sounds.get('ring')}`, { loop: true });
+      if (mine !== session) {
+        if (node) node.stop();
+        return;
+      }
+      if (node) source = node;
+      else {
+        // The file isn't there: two quick trills instead.
+        const once = () => {
+          tone([880, 1320], 0.35);
+          setTimeout(() => tone([880, 1320], 0.35), 480);
+        };
+        once();
+        clearInterval(timer);
+        timer = setInterval(() => {
+          once();
+          navigator.vibrate?.([400, 200, 400]);
+        }, 2500);
+      }
     },
     // Outgoing: the long "ringing" tone the caller hears.
     back() {
@@ -221,6 +292,25 @@ const ringer = (() => {
       const once = () => tone([440, 480], 1.4);
       once();
       timer = setInterval(once, 4000);
+    },
+    // A new message arrived while Lyr Chat is open.
+    message() {
+      const id = sounds.get('tone');
+      // In the background the notification makes the sound instead.
+      if (id === 'none' || source || document.hidden) return;
+      play(`tone_${id}`, { volume: 0.7 });
+      navigator.vibrate?.(120);
+    },
+    // Settings: hear a sound once.
+    async preview(kind, id) {
+      stop();
+      unlock();
+      if (id === 'none') return;
+      const node = await play(`${kind === 'ring' ? 'ring' : 'tone'}_${id}`, { volume: 0.8 });
+      if (node && kind === 'ring') {
+        source = node;
+        node.onended = () => source === node && (source = null);
+      }
     },
     stop,
   };
@@ -350,10 +440,12 @@ async function joinMeeting(meetingId) {
 
 async function refreshList() {
   try {
+    const before = S.list ? S.list.unreadCount + (S.list.requestCount || 0) : null;
     S.list = await api('GET', '/chat');
     patchList();
     patchConvHead();
     const unread = S.list.unreadCount + (S.list.requestCount || 0);
+    if (before !== null && unread > before) ringer.message();
     document.title = unread ? `(${unread}) Lyr Chat` : 'Lyr Chat';
     navigator.setAppBadge?.(unread).catch?.(() => {});
   } catch {}
@@ -438,8 +530,9 @@ async function enableNativePush(ask) {
   if (receive === 'prompt' || receive === 'prompt-with-rationale') receive = ask || !nativeToken ? (await P.requestPermissions()).receive : receive;
   S.push = receive === 'granted' ? 'granted' : receive === 'denied' ? 'denied' : 'default';
   if (receive !== 'granted') return;
-  await P.createChannel?.({ id: 'calls', name: 'Calls', description: 'Incoming voice and video calls', importance: 5, visibility: 1, vibration: true, sound: 'default' }).catch(() => {});
-  await P.createChannel?.({ id: 'messages', name: 'Messages', description: 'New messages', importance: 4, visibility: 0, vibration: true }).catch(() => {});
+  // The app makes its own notification channels (one per ringtone and message tone) and shows calls
+  // full screen with the chosen ringtone, so it only needs to know the choice.
+  Native.LyrApp?.setSounds?.({ ring: sounds.get('ring'), tone: sounds.get('tone') }).catch(() => {});
   if (!enableNativePush.listening) {
     enableNativePush.listening = true;
     P.addListener('registration', async ({ value }) => {
@@ -848,6 +941,12 @@ function settingsHtml() {
     <div class="lc-settings">
       <section class="lc-card lc-me">${avatarHtml({ name: me.name, email: me.email, avatar: profile.avatar }, 'avatar lc-av big')}<div><b>${esc(me.name || me.email)}</b><small>${esc(me.email)}</small><small>${profile.phoneVerified ? `📱 ${esc(profile.phone)} · people can find you by this number` : '📱 <a href="/app/#/profile" target="_blank" rel="noopener">Verify your mobile number</a> so people can find you by it'}</small></div></section>
       <section class="lc-card"><h2>Notifications</h2>${pushRow}</section>
+      <section class="lc-card lc-sounds"><h2>Sounds</h2>
+        ${[['ring', 'Ringtone', RINGTONES], ['tone', 'Message tone', MESSAGE_TONES]].map(([kind, label, list]) => `<label class="lc-sound"><span>${label}</span>
+          <select data-sound="${kind}">${list.map(([id, name]) => `<option value="${id}"${sounds.get(kind) === id ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>
+          <button type="button" class="btn small" data-act="sound-play" data-kind="${kind}" aria-label="Play ${label.toLowerCase()}">▶</button></label>`).join('')}
+        <p class="muted">${Native ? 'Used for calls and messages, also when Lyr Chat is closed.' : 'Used while Lyr Chat is open. When it’s closed, your browser plays its own notification sound.'}</p>
+      </section>
       ${isAndroid() && !inApp() ? `<section class="lc-card"><h2>Android app</h2><p>Get Lyr Chat as an app on this phone.</p><a class="btn small primary" href="${APK_URL}" download="LyrChat.apk">⬇ Download for Android</a><p class="muted">Open the downloaded file. If Android asks, allow your browser to install apps, then tap Install.</p></section>` : S.installEvent ? '<section class="lc-card"><h2>Install</h2><p>Add Lyr Chat to your home screen or desktop.</p><button class="btn small primary" data-act="install">⬇ Install Lyr Chat</button></section>' : ''}
       <section class="lc-card"><h2>Blocked people</h2>${S.blocked === null ? '<p class="muted">Loading…</p>' : S.blocked.length ? `<ul class="lc-blocked">${S.blocked.map((b) => `<li><span>${esc(b.name)}</span><button class="btn small" data-act="unblock" data-conv="${esc(b.conv)}">Unblock</button></li>`).join('')}</ul>` : '<p class="muted">No one. Block someone from the ⋮ menu in a chat.</p>'}</section>
       <section class="lc-card"><h2>More</h2>
@@ -1018,7 +1117,10 @@ async function route() {
   if (view === 'incoming') {
     try {
       const { call } = await api('GET', `/calls/${encodeURIComponent(S.route.callId)}`);
-      if (call.ringing) {
+      if (call.ringing && S.route.params.get('answer') === '1') {
+        S.incoming = call;
+        await answer(call, call.video);
+      } else if (call.ringing) {
         S.incoming = call;
         ringer.ring();
       } else toast(call.status === 'answered' ? 'This call was answered on another device.' : 'This call has ended.');
@@ -1035,6 +1137,7 @@ async function route() {
 const actions = {
   'push-on': () => enablePush(true).then(render),
   'push-off': () => disablePush().then(render),
+  'sound-play': (button) => ringer.preview(button.dataset.kind, button.closest('.lc-sound').querySelector('select').value),
   install: async () => {
     const event = S.installEvent;
     S.installEvent = null;
@@ -1261,6 +1364,12 @@ document.addEventListener('click', (event) => {
   }
 });
 
+document.addEventListener('change', (event) => {
+  const select = event.target.closest?.('select[data-sound]');
+  if (!select) return;
+  sounds.set(select.dataset.sound, select.value);
+  ringer.preview(select.dataset.sound, select.value);
+});
 document.addEventListener('input', (event) => {
   const t = event.target.closest('[data-input]');
   if (!t) return;
@@ -1316,6 +1425,7 @@ window.addEventListener('beforeinstallprompt', (event) => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !S.me) return;
   refreshList();
+  if (S.incoming) ringer.ring();
   pollRinging();
 });
 

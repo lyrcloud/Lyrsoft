@@ -771,3 +771,24 @@ body.lyrchat {
 .lc-tabs .lc-tab {
   font-size: 0.7rem;
 }
+
+/* Settings → Sounds */
+.lc-sound {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.lc-sound span {
+  flex: 1;
+}
+.lc-sound select {
+  min-width: 0;
+  max-width: 55%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}

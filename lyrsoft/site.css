@@ -147,3 +147,22 @@ img { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .lyrbot-toggle svg, .lyrbot-toggle svg .lyrbot-eye, .lyrbot-panel, .lyrbot-typing i { animation: none; }
 }
+
+/* Lyr Chat Android app */
+.nav-links .nav-app { padding: 6px 12px; border-radius: 999px; background: rgba(157, 140, 255, .18); color: #fff; font-weight: 600; }
+.nav-links .nav-app:hover { background: rgba(157, 140, 255, .3); }
+.app-band { background: linear-gradient(135deg, var(--hero) 0%, #2b1f7a 100%); color: var(--hero-ink); }
+.app-band .eyebrow { color: #9d8cff; }
+.app-band .muted { color: #c9c6ef; }
+.app-inner { display: flex; align-items: center; gap: 36px; }
+.app-icon { width: 120px; height: 120px; border-radius: 28px; box-shadow: 0 20px 50px rgba(0,0,0,.4); flex: none; }
+.app-text h2 { margin: 6px 0 10px; }
+.app-text .hero-cta { margin: 22px 0 12px; }
+.app-help { font-size: 14px; max-width: 560px; }
+.btn-outline { border-color: rgba(255,255,255,.35); color: #fff; }
+.btn-outline:hover { background: rgba(255,255,255,.08); }
+@media (max-width: 700px) {
+  .app-inner { flex-direction: column; text-align: center; }
+  .app-text .hero-cta { justify-content: center; }
+  .app-icon { width: 96px; height: 96px; border-radius: 22px; }
+}

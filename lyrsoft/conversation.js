@@ -3,12 +3,16 @@
 // the chat panel in calls (meet.js): mount(element) draws it into any element and keeps it live with
 // polling (only what's new or changed since the last poll). Its events use data-cv attributes, so they
 // never mix with the app's own data-click handlers.
+import { openCamera } from './camera.js';
+import { icon } from './icons.js';
+
 const POLL_MS = 3000;
 const TYPING_PING_MS = 3000;
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EMOJI = '😀 😁 😂 🤣 😊 😍 😘 😎 🤔 😅 😉 🙂 🙃 😢 😭 😡 😮 😴 🥳 🤩 👍 👎 👏 🙌 🙏 💪 👋 🤝 ✌️ 👌 ❤️ 🧡 💛 💚 💙 💜 🔥 ⭐ ✨ 🎉 🎂 ☕ 🍕 🚀 ✅ ❌ ⚠️ 📌 📎 📅 💡 💯'.split(' ');
 const IMAGE_RE = /^image\/(jpeg|png|gif|webp|heic|heif|avif)$/;
 const AUDIO_RE = /^audio\//;
+const VIDEO_RE = /^video\/(mp4|webm|quicktime|ogg|3gpp)$/;
 const VOICE_TYPES = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus'];
 const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
@@ -147,10 +151,11 @@ export class ConversationView {
       <div class="cv-status">${this.statusHtml()}</div>
       <form class="cv-compose" novalidate>
         ${this.replyTo || this.editing ? `<div class="cv-context"><span>${this.editing ? (this.editing.authorEmail === this.getMe().email ? '✎ Editing your message' : `✎ Editing ${esc(this.nameOf(this.editing.authorEmail))}’s message`) : `↩ Replying to <b>${esc(this.nameOf(this.replyTo.authorEmail))}</b>: ${esc(this.snippet(this.replyTo))}`}</span><button type="button" class="icon-btn" data-cv="cancel-context" aria-label="Cancel">✕</button></div>` : ''}
-        ${this.pending.length || this.uploading ? `<div class="cv-pending">${this.pending.map((f, i) => `<span class="cv-pending-file">${f.preview ? `<img src="${esc(f.preview)}" alt="" />` : '📎'}<small>${esc(f.name)}</small><button type="button" data-cv="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></span>`).join('')}${this.uploading ? `<span class="muted small">Uploading ${this.uploading}…</span>` : ''}</div>` : ''}
+        ${this.pending.length || this.uploading ? `<div class="cv-pending">${this.pending.map((f, i) => `<span class="cv-pending-file">${f.preview ? (f.video ? `<video src="${esc(f.preview)}" muted playsinline preload="metadata"></video>` : `<img src="${esc(f.preview)}" alt="" />`) : '📎'}<small>${esc(f.name)}</small><button type="button" data-cv="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></span>`).join('')}${this.uploading ? `<span class="muted small">Uploading ${this.uploading}…</span>` : ''}</div>` : ''}
         ${this.emojiOpen ? `<div class="cv-emoji" role="listbox" aria-label="Emoji">${EMOJI.map((e) => `<button type="button" data-cv="emoji" data-e="${e}">${e}</button>`).join('')}</div>` : ''}
         ${this.voice ? `<div class="cv-compose-row cv-recording"><button type="button" class="icon-btn" data-cv="voice-cancel" aria-label="Cancel voice message">🗑</button><span class="cv-rec-dot" aria-hidden="true"></span><span class="cv-rec-time">${clock(Date.now() - this.voice.started)}</span><span class="muted small">Recording…</span><button type="button" class="btn primary cv-send" data-cv="voice-send" aria-label="Send voice message">➤</button></div>` : `<div class="cv-compose-row">
           <label class="icon-btn cv-attach" title="Send photos or files" aria-label="Send photos or files"><input type="file" multiple hidden data-cv-file />📎</label>
+          <button type="button" class="icon-btn cv-camera" data-cv="camera" title="Take a photo or video" aria-label="Take a photo or video">${icon('camera')}</button>
           <button type="button" class="icon-btn" data-cv="emoji-toggle" title="Emoji" aria-label="Emoji">😊</button>
           <textarea rows="1" maxlength="4000" placeholder="Aa" aria-label="Message">${esc(this.draft)}</textarea>
           ${this.draft.trim() || this.pending.length ? `<button class="btn primary cv-send" type="submit"${this.sending || this.uploading ? ' disabled' : ''} aria-label="Send">➤</button>` : this.quickButtons()}
@@ -246,10 +251,12 @@ export class ConversationView {
         } else {
           const images = m.attachments.filter((a) => IMAGE_RE.test(a.type));
           const voices = m.attachments.filter((a) => AUDIO_RE.test(a.type));
-          const files = m.attachments.filter((a) => !IMAGE_RE.test(a.type) && !AUDIO_RE.test(a.type));
+          const videos = m.attachments.filter((a) => VIDEO_RE.test(a.type));
+          const files = m.attachments.filter((a) => !IMAGE_RE.test(a.type) && !AUDIO_RE.test(a.type) && !VIDEO_RE.test(a.type));
           content = `
             ${m.replyTo ? `<a class="cv-quote" href="#" data-cv="jump" data-id="${esc(m.replyTo.id)}"><b>${esc(this.nameOf(m.replyTo.authorEmail))}</b>${esc(m.replyTo.snippet)}</a>` : ''}
             ${images.length ? `<div class="cv-images n${Math.min(images.length, 3)}">${images.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name)}" loading="lazy" /></a>`).join('')}</div>` : ''}
+            ${videos.map((a) => `<div class="cv-video"><video controls playsinline preload="metadata" src="${esc(a.url)}"></video></div>`).join('')}
             ${voices.map((a) => `<div class="cv-voice"><span aria-hidden="true">🎙</span><audio controls preload="metadata" src="${esc(a.url)}"></audio></div>`).join('')}
             ${files.map((a) => `<a class="cv-file" href="${esc(a.download)}" target="_blank" rel="noopener"><span aria-hidden="true">📄</span><span><b>${esc(a.name)}</b><small>${sizeText(a.size)}</small></span></a>`).join('')}
             ${m.body ? `<p>${esc(m.body).replace(/https:\/\/[^\s<]+[^\s<.,;:!?)]/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)}</p>` : ''}`;
@@ -408,7 +415,7 @@ export class ConversationView {
         const slot = await this.api('POST', this.path('/uploads'), { name: file.name, type, size: file.size });
         const res = await fetch(slot.url, { method: 'PUT', headers: { 'content-type': slot.type }, body: file });
         if (!res.ok) throw new Error(`Upload failed (${res.status}).`);
-        this.pending.push({ key: slot.key, name: slot.name, type: slot.type, size: file.size, preview: IMAGE_RE.test(type) ? URL.createObjectURL(file) : null });
+        this.pending.push({ key: slot.key, name: slot.name, type: slot.type, size: file.size, preview: IMAGE_RE.test(type) || VIDEO_RE.test(type) ? URL.createObjectURL(file) : null, video: VIDEO_RE.test(type) });
       } catch (error) {
         this.toast(`${file.name}: ${error.message}`);
       }
@@ -505,6 +512,14 @@ export class ConversationView {
       return;
     }
     if (action === 'quick-like') return this.send('👍');
+    if (action === 'camera') {
+      const file = await openCamera({ toast: this.toast });
+      if (file) {
+        await this.upload([file]);
+        this.el?.querySelector('textarea')?.focus();
+      }
+      return;
+    }
     if (action === 'voice-start') return this.startVoice();
     if (action === 'voice-send') return this.stopVoice(true);
     if (action === 'voice-cancel') return this.stopVoice(false);

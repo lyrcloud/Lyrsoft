@@ -8015,3 +8015,287 @@ td .gr-bar {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------ camera in the message box (camera.js) */
+
+.cv-camera .ico {
+  width: 22px;
+  height: 22px;
+}
+
+.cv-pending-file video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cv-video video {
+  display: block;
+  width: min(300px, 64vw);
+  max-height: 380px;
+  border-radius: 12px;
+  background: #000;
+}
+
+body.cam-open {
+  overflow: hidden;
+}
+
+.cam {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: #000;
+  color: #fff;
+  animation: cam-in 0.2s ease-out;
+}
+
+.cam.closing {
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+
+@keyframes cam-in {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+
+.cam-live,
+.cam-shot,
+.cam-shot img,
+.cam-shot video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cam-shot img,
+.cam-shot video {
+  object-fit: contain;
+  background: #000;
+}
+
+.cam-live.mirror {
+  transform: scaleX(-1);
+}
+
+.cam-live[hidden],
+.cam-shot[hidden],
+.cam [hidden] {
+  display: none !important;
+}
+
+.cam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cam.flash::after {
+  animation: cam-flash 0.25s ease-out;
+}
+
+@keyframes cam-flash {
+  from {
+    opacity: 0.85;
+  }
+}
+
+.cam-top,
+.cam-bottom {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  padding: max(14px, env(safe-area-inset-top)) 16px 14px;
+}
+
+.cam-top {
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(rgba(0, 0, 0, 0.45), transparent);
+}
+
+.cam-bottom {
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: max(22px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+}
+
+.cam-round {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.2s;
+}
+
+.cam-round:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.cam-round:active {
+  transform: scale(0.9);
+}
+
+.cam-round .ico {
+  width: 22px;
+  height: 22px;
+}
+
+.cam-round.spin .ico {
+  animation: flip-turn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cam-time {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #e5484d;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.cam-modes {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+.cam-modes button {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgba(255, 255, 255, 0.75);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.cam-modes button.on {
+  background: #fff;
+  color: #111;
+}
+
+.cam.recording .cam-modes {
+  visibility: hidden;
+}
+
+.cam-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: min(100%, 420px);
+}
+
+.cam-shutter {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  padding: 0;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cam-shutter i {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: #fff;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cam-shutter:active i {
+  transform: scale(0.88);
+}
+
+.cam.video-mode .cam-shutter i {
+  background: #e5484d;
+}
+
+.cam.recording .cam-shutter i {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.cam.recording .cam-shutter {
+  animation: cam-rec 1.4s ease-in-out infinite;
+}
+
+@keyframes cam-rec {
+  50% {
+    box-shadow: 0 0 0 10px rgba(229, 72, 77, 0.35);
+  }
+}
+
+.cam-review {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cam-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.2s;
+}
+
+.cam-pill .ico {
+  width: 20px;
+  height: 20px;
+}
+
+.cam-pill.go {
+  background: linear-gradient(135deg, #6c5ce7, #8b6bff);
+  box-shadow: 0 6px 20px rgba(108, 92, 231, 0.5);
+}
+
+.cam-pill:hover {
+  filter: brightness(1.12);
+}
+
+.cam-pill:active {
+  transform: scale(0.94);
+}

@@ -28,6 +28,8 @@ const P = {
   contacts: '<rect x="4" y="2" width="16" height="20" rx="2.5"/><circle cx="12" cy="10" r="3"/><path d="M7.5 18a4.5 4.5 0 0 1 9 0M2 7h2M2 12h2M2 17h2"/>',
   minimize: '<path d="M5 18h14"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  camera: '<path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.8l1.5-2h6.4l1.5 2h1.8A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><circle cx="12" cy="12.5" r="3.8"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
   play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
 };
 
